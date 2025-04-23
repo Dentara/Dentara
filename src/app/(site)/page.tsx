@@ -149,7 +149,7 @@ export default function Page() {
   <div className="max-w-2xl mx-auto">
     <h2 className="text-3xl font-bold mb-4">Join the Dentara Revolution</h2>
     <p className="text-lg mb-6">
-      Be part of the first global Web3 dental ecosystem. Whether you’re a dentist, a patient, or an innovator — DENTARA welcomes you.
+      Be part of the first global Web3 dental ecosystem. Whether you&apos;re a dentist, a patient, or an innovator — DENTARA welcomes you.
     </p>
     <a
       href="/join"
