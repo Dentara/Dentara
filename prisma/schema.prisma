@@ -1,10 +1,10 @@
-// This is your Prisma schema file,
+// This is your Prisma schema file
 // learn more about it in the docs: https://pris.ly/d/prisma-schema
 
 datasource db {
   provider          = "postgresql"
   url               = env("DATABASE_URL")
-  shadowDatabaseUrl = env("SHADOW_DATABASE_URL") // Only needed when using a cloud provider that doesn't support the creation of new databases, like Heroku. Learn more: https://pris.ly/d/migrate-shadow
+  shadowDatabaseUrl = env("SHADOW_DATABASE_URL")
 }
 
 generator client {
@@ -41,14 +41,28 @@ model Session {
 model User {
   id                    String    @id @default(cuid())
   name                  String?
+  fullname              String?
   email                 String?   @unique
   emailVerified         DateTime?
   image                 String?
   password              String?
   passwordResetToken    String?   @unique
   passwordResetTokenExp DateTime?
-  accounts              Account[]
-  sessions              Session[]
+  role                  String    @default("patient")
+  phone                 String?
+  status                String    @default("pending")
+  documents             String[]
+  emailConfirmed        Boolean   @default(false)
+  verificationToken     String?
+  tokenExpires          DateTime?
+
+  accounts                 Account[]
+  sessions                 Session[]
+  doctorRequests           DoctorRequest[]     @relation("DentistRequests")
+  clinicMemberships        ClinicDoctor[]
+  clinicUsers              ClinicUser[]
+  auditLogs                AuditLog[]
+  passwordResetTokenRecord PasswordResetToken?
 }
 
 model VerificationToken {
@@ -58,4 +72,411 @@ model VerificationToken {
   expires    DateTime
 
   @@unique([identifier, token])
+}
+
+model DoctorRequest {
+  id        String   @id @default(cuid())
+  dentistId String
+  fullName  String
+  phone     String?
+  message   String
+  status    String   @default("new")
+  createdAt DateTime @default(now())
+
+  dentist User @relation(name: "DentistRequests", fields: [dentistId], references: [id])
+}
+
+model Clinic {
+  id          String   @id @default(cuid())
+  name        String
+  email       String   @unique
+  phone       String?
+  address     String?
+  website     String?
+  licenseFile String?
+  createdAt   DateTime @default(now())
+
+  doctors      ClinicDoctor[]
+  patients     ClinicPatient[]
+  users        ClinicUser[]
+  doctorList   Doctor[]
+  appointments Appointment[]
+  files        ClinicFile[]
+  billings     Billing[]
+}
+
+enum StaffRole {
+  DOCTOR
+  HYGIENIST
+  ASSISTANT
+  NURSE
+  admin
+  manager
+  receptionist
+}
+
+model ClinicDoctor {
+  id       String    @id @default(cuid())
+  clinicId String
+  userId   String
+  role     StaffRole @default(DOCTOR)
+  joinedAt DateTime  @default(now())
+
+  clinic Clinic @relation(fields: [clinicId], references: [id])
+  user   User   @relation(fields: [userId], references: [id])
+}
+
+model ClinicPatient {
+  id        String    @id @default(cuid())
+  clinicId  String
+  fullName  String
+  birthDate DateTime?
+  phone     String?
+  email     String?
+  image     String?   @default("")
+  gender    String?
+  address   String?   @default("")
+  createdAt DateTime  @default(now())
+
+  clinic       Clinic              @relation(fields: [clinicId], references: [id])
+  notes        ClinicPatientNote[]
+  appointments Appointment[]
+  medicalNotes ClinicMedicalNote[]
+  files        ClinicFile[]
+}
+
+model ClinicPatientNote {
+  id        String   @id @default(cuid())
+  patientId String
+  title     String
+  content   String
+  type      String   @default("general") // complaint, diagnosis, prescription, internal
+  file      String?
+  createdAt DateTime @default(now())
+
+  patient ClinicPatient @relation(fields: [patientId], references: [id])
+}
+
+model ClinicMedicalNote {
+  id            String   @id @default(cuid())
+  patientId     String
+  appointmentId String?
+  doctorId      String
+  noteType      String // complaint, diagnosis, prescription, procedure, internal
+  complaint     String?
+  diagnosis     String?
+  prescription  String?
+  plan          String?
+  procedure     String?
+  fileUrl       String?
+  tags          String[]
+  createdAt     DateTime @default(now())
+
+  patient     ClinicPatient @relation(fields: [patientId], references: [id])
+  appointment Appointment?  @relation(fields: [appointmentId], references: [id])
+  doctor      Doctor        @relation(fields: [doctorId], references: [id])
+}
+
+model ClinicFile {
+  id            String   @id @default(cuid())
+  clinicId      String
+  patientId     String?
+  appointmentId String?
+  title         String
+  fileUrl       String
+  type          String // xray, lab, scan, photo, doc, etc.
+  uploadedAt    DateTime @default(now())
+
+  clinic      Clinic         @relation(fields: [clinicId], references: [id])
+  patient     ClinicPatient? @relation(fields: [patientId], references: [id])
+  appointment Appointment?   @relation(fields: [appointmentId], references: [id])
+}
+
+model ClinicUser {
+  id          String   @id @default(cuid())
+  clinicId    String
+  userId      String
+  role        String   @default("admin")
+  permissions String[] @default([])
+  createdAt   DateTime @default(now())
+
+  clinic Clinic @relation(fields: [clinicId], references: [id])
+  user   User   @relation(fields: [userId], references: [id])
+
+  @@unique([clinicId, userId])
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  userId     String
+  clinicId   String?
+  action     String
+  targetType String
+  targetId   String?
+  meta       Json?
+  timestamp  DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+}
+
+model PasswordResetToken {
+  id        String   @id @default(cuid())
+  token     String   @unique
+  user      User     @relation(fields: [userId], references: [id])
+  userId    String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+}
+
+model Doctor {
+  id                      String    @id @default(cuid())
+  fullName                String
+  profilePhoto            String
+  gender                  String?
+  dob                     DateTime?
+  address                 String?
+  city                    String?
+  state                   String?
+  zip                     String?
+  email                   String    @unique
+  phone                   String?
+  emergencyContactName    String?
+  emergencyContactPhone   String?
+  profilePhoto            String?
+  specialization          String?
+  secondarySpecialization String?
+  licenseNumber           String?
+  licenseExpiryDate       DateTime?
+  qualifications          String?
+  experience              Int?
+  education               String?
+  certifications          String?
+  department              String?
+  position                String?
+  username                String?
+  password                String?
+  emailAccount            String?
+  accessPatients          Boolean   @default(false)
+  accessPrescriptions     Boolean   @default(false)
+  accessBilling           Boolean   @default(false)
+  accessReports           Boolean   @default(false)
+  notifyAppointments      Boolean   @default(true)
+  notifyPatients          Boolean   @default(true)
+  notifySystem            Boolean   @default(true)
+  status                  String    @default("Active")
+  createdAt               DateTime  @default(now())
+  updatedAt               DateTime  @updatedAt
+
+  clinicId     String
+  clinic       Clinic              @relation(fields: [clinicId], references: [id])
+  schedules    Schedule[]
+  appointments Appointment[]
+  medicalNotes ClinicMedicalNote[]
+}
+
+model Appointment {
+  id        String   @id @default(cuid())
+  clinicId  String
+  doctorId  String
+  patientId String
+  date      DateTime
+  time      String   @default("")
+  endTime   String   @default("")
+  reason    String?
+  type      String   @default("")
+  notes     String   @default("")
+  status    String   @default("scheduled")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+
+  // Relations
+  clinic          Clinic         @relation(fields: [clinicId], references: [id])
+  doctor          Doctor         @relation(fields: [doctorId], references: [id])
+  patient         Patient        @relation(fields: [patientId], references: [id])
+  clinicPatient   ClinicPatient? @relation(fields: [clinicPatientId], references: [id])
+  clinicPatientId String?
+
+  vitalSignId String?          @unique
+  vitalSigns  ClinicVitalSign? @relation(fields: [vitalSignId], references: [id])
+
+  medicalNotes ClinicMedicalNote[]
+  files        ClinicFile[]
+}
+
+model ClinicVitalSign {
+  id               String  @id @default(cuid())
+  bloodPressure    String?
+  heartRate        String?
+  temperature      String?
+  respiratoryRate  String?
+  oxygenSaturation String?
+  height           String?
+  weight           String?
+
+  appointment Appointment?
+}
+
+model Billing {
+  id          String      @id @default(cuid())
+  clinicId    String
+  amount      Float
+  department  String?
+  createdAt   DateTime    @default(now())
+  labResultId String
+  name        String
+  value       String
+  range       String
+  flag        String
+  patient     Patient     @relation(fields: [patientId], references: [id])
+  patientId   String
+  clinic      Clinic      @relation(fields: [clinicId], references: [id])
+  LabResult   LabResult[]
+}
+
+model Prescription {
+  id         String   @id @default(uuid())
+  patient    Patient  @relation(fields: [patientId], references: [id])
+  patientId  String
+  medication String
+  dosage     String
+  frequency  String
+  startDate  DateTime
+  endDate    String
+  doctor     String
+  status     String
+  refills    Int
+}
+
+model LabResult {
+  id        String          @id @default(uuid())
+  patient   Patient         @relation(fields: [patientId], references: [id])
+  patientId String
+  date      DateTime
+  type      String          @default("")
+  orderedBy String
+  billing   Billing?        @relation(fields: [billingId], references: [id])
+  status    String
+  results   LabResultItem[]
+  billingId String?
+}
+
+model LabResultItem {
+  id          String    @id @default(uuid())
+  labResult   LabResult @relation(fields: [labResultId], references: [id])
+  labResultId String
+  name        String
+  value       String
+  range       String
+  flag        String
+}
+
+model Patient {
+  id                 String   @id @default(uuid())
+  name               String
+  email              String
+  phone              String
+  altPhone           String
+  dob                DateTime
+  gender             String
+  address            String
+  city               String
+  state              String
+  zip                String
+  age                Int
+  bloodType          String
+  height             Int
+  weight             Int
+  allergies          String[]
+  currentMedications String
+  chronicConditions  String
+  pastSurgeries      String
+  hospitalizations   String
+  familyHistoryNotes String
+  smoking            String
+  alcohol            String
+  exercise           String
+  diet               String
+  insuranceProvider  String
+  policyNumber       String
+  groupNumber        String
+  policyHolder       String
+  relationship       String
+  insurancePhone     String
+  billingMethod      String
+  primaryDoctor      String
+  registrationDate   DateTime
+  createdAt          DateTime @default(now())
+  conditions         String[]
+
+  status    String    @default("Active")
+  lastVisit DateTime?
+  condition String    @default("")
+  doctor    String    @default("")
+  image     String?   @default("")
+
+  appointments  Appointment[]
+  prescriptions Prescription[]
+  labResults    LabResult[]
+  billing       Billing[]
+  diagnoses     Diagnosis[]
+  visits        Visit[]
+  procedures    Procedure[]
+  immunizations Immunization[]
+}
+
+model Diagnosis {
+  id        String   @id @default(uuid())
+  patient   Patient  @relation(fields: [patientId], references: [id])
+  patientId String
+  date      DateTime
+  condition String
+  doctor    String
+  notes     String?
+  status    String
+}
+
+model Visit {
+  id         String   @id @default(uuid())
+  patient    Patient  @relation(fields: [patientId], references: [id])
+  patientId  String
+  date       DateTime
+  type       String   @default("")
+  doctor     String
+  department String
+  notes      String?
+}
+
+model Procedure {
+  id        String   @id @default(uuid())
+  patient   Patient  @relation(fields: [patientId], references: [id])
+  patientId String
+  date      DateTime
+  procedure String
+  doctor    String
+  location  String
+  notes     String?
+}
+
+model Immunization {
+  id            String   @id @default(uuid())
+  patient       Patient  @relation(fields: [patientId], references: [id])
+  patientId     String
+  date          DateTime
+  vaccine       String
+  administrator String
+  location      String
+  notes         String?
+}
+
+model Schedule {
+  id        String  @id @default(cuid())
+  doctorId  String  @unique
+  doctor    Doctor  @relation(fields: [doctorId], references: [id])
+  monday    String?
+  tuesday   String?
+  wednesday String?
+  thursday  String?
+  friday    String?
+  saturday  String?
+  sunday    String?
 }

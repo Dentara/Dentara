@@ -1,6 +1,6 @@
 "use client";
 
-import "../../css/style.css";
+import "@/globals.css";
 import React, { useEffect, useState } from "react";
 import PreLoader from "@/components/PreLoader";
 import NextTopLoader from "nextjs-toploader";

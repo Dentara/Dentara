@@ -1,34 +1,44 @@
-import bcrypt from "bcrypt";
-import { prisma } from "../../libs/prismaDB";
+import { prisma } from "@/libs/prisma";
+import { sendVerificationEmail } from "@/libs/emails";
 import { NextResponse } from "next/server";
+import { writeFile } from "fs/promises";
+import path from "path";
+import { randomUUID } from "crypto";
 
-export async function POST(request: any) {
-  const body = await request.json();
-  const { name, email, password } = body;
+export async function POST(req: Request) {
+  const formData = await req.formData();
 
-  if (!name || !email || !password) {
-    return new NextResponse("Missing Fields", { status: 400 });
+  const fullName = formData.get("fullName")?.toString() || "";
+  const email = formData.get("email")?.toString() || "";
+  const password = formData.get("password")?.toString() || "";
+  const role = formData.get("role")?.toString() || "patient";
+
+  const token = randomUUID();
+  const expires = new Date(Date.now() + 1000 * 60 * 60 * 24); // 24h
+
+  const files: string[] = [];
+  for (const [key, value] of formData.entries()) {
+    if (value instanceof File && value.size > 0) {
+      const buffer = Buffer.from(await value.arrayBuffer());
+      const filePath = path.join(process.cwd(), "public/uploads", value.name);
+      await writeFile(filePath, buffer);
+      files.push(value.name);
+    }
   }
 
-  const exist = await prisma.user.findUnique({
-    where: {
-      email,
-    },
-  });
-
-  if (exist) {
-    throw new Error("Email already exists");
-  }
-
-  const hashedPassword = await bcrypt.hash(password, 10);
-
-  const user = await prisma.user.create({
+  await prisma.user.create({
     data: {
-      name,
+      fullName,
       email,
-      password: hashedPassword,
+      password, // TODO: hash if needed
+      role,
+      documents: files,
+      verificationToken: token,
+      tokenExpires: expires,
     },
   });
 
-  return NextResponse.json(user);
+  await sendVerificationEmail(email, token);
+
+  return NextResponse.json({ message: "User registered and verification email sent." });
 }

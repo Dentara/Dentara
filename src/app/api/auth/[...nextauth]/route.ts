@@ -5,7 +5,6 @@ import CredentialsProvider from "next-auth/providers/credentials";
 import GitHubProvider from "next-auth/providers/github";
 import GoogleProvider from "next-auth/providers/google";
 import EmailProvider from "next-auth/providers/email";
-
 import bcrypt from "bcrypt";
 
 export const authOptions: NextAuthOptions = {
@@ -24,35 +23,34 @@ export const authOptions: NextAuthOptions = {
       credentials: {
         email: { label: "Email", type: "text", placeholder: "Jhondoe" },
         password: { label: "Password", type: "password" },
-        username: { label: "Username", type: "text", placeholder: "Jhon Doe" },
+        accountType: { label: "Account Type", type: "text" },
       },
 
       async authorize(credentials) {
-        // check to see if eamil and password is there
-        if (!credentials?.email || !credentials?.password) {
-          throw new Error("Please enter an email or password");
+        if (!credentials?.email || !credentials?.password || !credentials?.accountType) {
+          throw new Error("Please enter email, password and account type");
         }
 
-        // check to see if user already exist
         const user = await prisma.user.findUnique({
-          where: {
-            email: credentials.email,
-          },
+          where: { email: credentials.email },
         });
 
-        // if user was not found
-        if (!user || !user?.password) {
-          throw new Error("No user found");
+        if (!user) {
+          throw new Error("No account found with this email.");
         }
 
-        // check to see if passwords match
-        const passwordMatch = await bcrypt.compare(
-          credentials.password,
-          user.password,
-        );
+        if (!user.emailConfirmed) {
+          throw new Error("Please verify your email before logging in.");
+        }
+
+        if (user.role !== credentials.accountType) {
+          throw new Error(`This email belongs to a ${user.role} account. Please select the correct role.`);
+        }
+
+        const passwordMatch = await bcrypt.compare(credentials.password, user.password);
 
         if (!passwordMatch) {
-          throw new Error("Incorrect password");
+          throw new Error("Incorrect password.");
         }
 
         return user;
@@ -82,9 +80,32 @@ export const authOptions: NextAuthOptions = {
     }),
   ],
 
-  // debug: process.env.NODE_ENV === "developement",
+  callbacks: {
+    async jwt({ token, user }) {
+      if (user) {
+        token.id = user.id;
+        token.role = user.role;
+
+        const clinicDoctor = await prisma.clinicDoctor.findFirst({
+          where: { userId: user.id },
+        });
+
+        token.clinicId = clinicDoctor?.clinicId || null;
+        token.clinicRole = clinicDoctor?.role || "unknown";
+      }
+
+      return token;
+    },
+
+    async session({ session, token }) {
+      (session.user as any).id = token.id;
+      (session.user as any).role = token.role;
+      (session.user as any).clinicId = token.clinicId || null;
+      (session.user as any).clinicRole = token.clinicRole || "unknown";
+      return session;
+    },
+  },
 };
 
 const handler = NextAuth(authOptions);
-
 export { handler as GET, handler as POST };

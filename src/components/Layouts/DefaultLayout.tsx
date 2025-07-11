@@ -1,7 +1,7 @@
 import React from "react";
 import Header from "@/components/Header";
 import ToasterContext from "@/app/context/ToastContext";
-import Footer from "@/components/Footer";
+import Footer from "@/components/Footer/Footer";
 import ScrollToTop from "@/components/ScrollToTop";
 
 const DefaultLayout = ({

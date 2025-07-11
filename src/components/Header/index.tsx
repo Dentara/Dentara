@@ -23,30 +23,17 @@ const menuData: Menu[] = [
     label: "Roadmap",
     route: "/#roadmap",
   },
-
   {
     label: "Pages",
     route: "#",
     children: [
       {
-        label: "Blog Grid Page",
-        route: "/blog",
+        label: "Sign In",
+        route: "/signin",
       },
       {
-        label: "Token Sale Page",
-        route: "/token-sale",
-      },
-      {
-        label: "Support Page",
-        route: "/support",
-      },
-      {
-        label: "Signin Page",
-        route: "/auth/signin",
-      },
-      {
-        label: "Signup Page",
-        route: "/auth/signup",
+        label: "Sign Up",
+        route: "/signup",
       },
     ],
   },
@@ -55,6 +42,7 @@ const menuData: Menu[] = [
     route: "/#contact",
   },
 ];
+
 
 const Header = () => {
   useEffect(() => {
