@@ -242,7 +242,6 @@ model Doctor {
   phone                   String?
   emergencyContactName    String?
   emergencyContactPhone   String?
-  profilePhoto            String?
   specialization          String?
   secondarySpecialization String?
   licenseNumber           String?
