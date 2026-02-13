@@ -1,6 +1,6 @@
-import { Skeleton } from "@/components/ui/skeleton"
-import { Card, CardContent, CardHeader } from "@/components/ui/card"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Skeleton } from "@/components/ui/skeleton";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 export default function DoctorDashboardLoading() {
   return (
@@ -22,20 +22,17 @@ export default function DoctorDashboardLoading() {
         </div>
 
         <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
-          {Array(4)
-            .fill(0)
-            .map((_, i) => (
-              <Card key={i}>
-                <CardHeader className="pb-2">
-                  <Skeleton className="h-5 w-[120px]" />
-                </CardHeader>
-                <CardContent>
-                  <Skeleton className="h-8 w-[60px] mb-2" />
-                  <Skeleton className="h-4 w-[140px] mb-4" />
-                  <Skeleton className="h-9 w-full" />
-                </CardContent>
-              </Card>
-            ))}
+          {[...Array(4)].map((_, i) => (
+            <Card key={i}>
+              <CardHeader>
+                <Skeleton className="h-5 w-[120px]" />
+              </CardHeader>
+              <CardContent>
+                <Skeleton className="h-8 w-[60px] mb-2" />
+                <Skeleton className="h-4 w-[100px] mb-4" />
+              </CardContent>
+            </Card>
+          ))}
         </div>
 
         <Tabs defaultValue="schedule" className="space-y-4">
@@ -45,7 +42,6 @@ export default function DoctorDashboardLoading() {
             <TabsTrigger value="tasks">Tasks</TabsTrigger>
             <TabsTrigger value="stats">Stats</TabsTrigger>
           </TabsList>
-
           <TabsContent value="schedule" className="space-y-4">
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-7">
               <Card className="col-span-4">
@@ -54,30 +50,27 @@ export default function DoctorDashboardLoading() {
                   <Skeleton className="h-4 w-[250px]" />
                 </CardHeader>
                 <CardContent>
-                  {Array(5)
-                    .fill(0)
-                    .map((_, i) => (
-                      <div key={i} className="mb-4 flex items-center justify-between">
-                        <div className="flex items-center space-x-4">
-                          <Skeleton className="h-12 w-12 rounded-full" />
-                          <div className="space-y-2">
-                            <Skeleton className="h-4 w-[150px]" />
-                            <Skeleton className="h-4 w-[100px]" />
-                          </div>
+                  {[...Array(3)].map((_, i) => (
+                    <div key={i} className="mb-4 flex items-center justify-between">
+                      <div className="flex items-center space-x-4">
+                        <Skeleton className="h-12 w-12 rounded-full" />
+                        <div className="space-y-2">
+                          <Skeleton className="h-4 w-[120px]" />
+                          <Skeleton className="h-4 w-[80px]" />
                         </div>
-                        <Skeleton className="h-8 w-[100px]" />
                       </div>
-                    ))}
+                      <Skeleton className="h-8 w-[80px]" />
+                    </div>
+                  ))}
                 </CardContent>
               </Card>
-
               <Card className="col-span-3">
                 <CardHeader>
                   <Skeleton className="h-6 w-[150px] mb-2" />
                   <Skeleton className="h-4 w-[200px]" />
                 </CardHeader>
                 <CardContent>
-                  <Skeleton className="h-[300px] w-full" />
+                  <Skeleton className="h-[180px] w-full" />
                 </CardContent>
               </Card>
             </div>
@@ -85,5 +78,5 @@ export default function DoctorDashboardLoading() {
         </Tabs>
       </main>
     </div>
-  )
+  );
 }

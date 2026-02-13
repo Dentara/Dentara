@@ -1,19 +1,26 @@
 import { NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 
 export async function GET() {
-  const clinicId = "demo-clinic-id";
+  const session = await getServerSession(authOptions);
+  const user: any = session?.user;
+  if (!user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const results = await prisma.appointment.groupBy({
-    by: ["reason"],
+  const clinicId = user.role === "clinic" ? user.id : user.clinicId || null;
+  if (!clinicId) return NextResponse.json({ error: "No clinicId bound" }, { status: 403 });
+
+  const rows = await prisma.appointment.groupBy({
+    by: ["type"],
     where: { clinicId },
-    _count: true,
+    _count: { _all: true },
   });
 
-  const transformed = results.map(item => ({
-    name: item.reason || "Other",
-    value: item._count,
+  const data = rows.map(r => ({
+    name: r.type || "Other",
+    value: r._count._all,
   }));
 
-  return NextResponse.json(transformed);
+  return NextResponse.json(data);
 }

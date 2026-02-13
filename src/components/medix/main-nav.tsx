@@ -1,30 +1,24 @@
 "use client";
-import { useMobile } from "@/hooks/use-mobile";
-import { Menu } from "lucide-react";
-import Image from "next/image";
+
 import Link from "next/link";
+import { Menu } from "lucide-react";
 
 export function MainNav({ onMenuClick }: { onMenuClick: () => void }) {
-  const isMobile = useMobile();
-
   return (
-    <div className="flex items-center gap-3 md:gap-10">
-      {isMobile && (
-        <button onClick={onMenuClick}>
-          <Menu size={28} />
-          <span className="sr-only">Toggle menu</span>
-        </button>
-      )}
-      <Link href="/" className="flex items-center space-x-2">
-        <Image
-          src="/icon.png"
-          alt="Dentara Logo"
-          width={36}
-          height={36}
-        />
-        <span className="hidden font-bold xl:text-lg sm:inline-block">
-          Dentara
-        </span>
+    <div className="flex items-center gap-3 md:gap-6">
+      {/* Hamburger: yalnız <xl görünüşündə */}
+      <button
+        type="button"
+        onClick={onMenuClick}
+        className="xl:hidden p-2 rounded hover:bg-muted"
+        aria-label="Toggle sidebar"
+      >
+        <Menu className="h-6 w-6" />
+      </button>
+
+      {/* Brend – test şəkilsiz, sadə link */}
+      <Link href="/dashboard/clinic" className="flex items-center gap-2">
+        <span className="text-lg font-semibold tracking-tight">Tagiza</span>
       </Link>
     </div>
   );

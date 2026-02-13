@@ -1,40 +1,13 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useParams, useRouter } from "next/navigation";
-import { notFound } from "next/navigation";
-import {
-  Avatar,
-  AvatarFallback,
-  AvatarImage,
-} from "@/components/ui/avatar";
+import { useParams, useRouter, notFound } from "next/navigation";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import {
-  Form,
-  FormControl,
-  FormDescription,
-  FormField,
-  FormItem,
-  FormLabel,
-  FormMessage,
-} from "@/components/ui/form";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "@/components/ui/use-toast";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { ChevronLeft, Save } from "lucide-react";
@@ -48,23 +21,22 @@ const formSchema = z.object({
   status: z.string().min(1, { message: "Please select a status." }),
   experience: z.string().min(1, { message: "Please enter years of experience." }),
   email: z.string().email({ message: "Please enter a valid email address." }),
-  phone: z.string().min(10, { message: "Please enter a valid phone number." }),
-  bio: z.string().min(10, { message: "Bio must be at least 10 characters." }),
+  phone: z.string().min(6, { message: "Please enter a valid phone number." }),
+  bio: z.string().min(5, { message: "Bio must be at least 5 characters." }),
   department: z.string().min(1, { message: "Please select a department." }),
   address: z.string().min(5, { message: "Please enter a valid address." }),
-  languages: z.string().min(1, { message: "Please enter languages spoken." }),
+  languages: z.string().optional(), // serverdə languages yoxdursa boş string saxlayacağıq
 });
 
 const specialties = [
-  "Orthodontics", "Periodontics", "Endodontics", "Prosthodontics", "Oral Surgery",
-  "Pediatric Dentistry", "Preventive Dentistry", "Cosmetic Dentistry", "Diagnostics",
+  "Orthodontics","Periodontics","Endodontics","Prosthodontics","Oral Surgery",
+  "Pediatric Dentistry","Preventive Dentistry","Cosmetic Dentistry","Diagnostics",
 ];
 const departments = [
-  "Orthodontic Care", "Periodontal Therapy", "Endodontic Services", "Restorative Dentistry",
-  "Oral Surgery Unit", "Pediatric Dental Care", "Preventive Services", "Aesthetic Unit", "Radiology & Imaging"
+  "Orthodontic Care","Periodontal Therapy","Endodontic Services","Restorative Dentistry",
+  "Oral Surgery Unit","Pediatric Dental Care","Preventive Services","Aesthetic Unit","Radiology & Imaging",
 ];
-
-const statuses = ["Active", "On Leave", "Inactive"];
+const statuses = ["Active","On Leave","Inactive"];
 
 export default function EditDoctorPage() {
   const { id } = useParams();
@@ -75,8 +47,22 @@ export default function EditDoctorPage() {
   const [loading, setLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  // ✅ İlk renderdən controlled etmək üçün tam defaultValues veririk
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
+    defaultValues: {
+      fullName: "",
+      specialization: "",
+      status: "",
+      experience: "",   // number input olsa da string saxlayırıq ki, hər zaman controlled olsun
+      email: "",
+      phone: "",
+      bio: "",
+      department: "",
+      address: "",
+      languages: "",    // boş string → controlled
+    },
+    mode: "onChange",
   });
 
   useEffect(() => {
@@ -86,8 +72,7 @@ export default function EditDoctorPage() {
         if (!res.ok) throw new Error("Doctor not found");
         const data = await res.json();
         setDoctor(data);
-      } catch (err) {
-        console.error("Error fetching doctor:", err);
+      } catch {
         setDoctor(null);
       } finally {
         setLoading(false);
@@ -99,19 +84,22 @@ export default function EditDoctorPage() {
   useEffect(() => {
     if (doctor) {
       form.reset({
-        fullName: doctor.fullName || "",
-        specialization: doctor.specialization || "",
-        status: doctor.status || "",
-        experience: doctor.experience || "",
-        email: doctor.email || "",
-        phone: doctor.phone || "",
-        bio: doctor.bio || "",
-        department: doctor.department || "",
-        address: doctor.address || "",
-        languages: Array.isArray(doctor.languages) ? doctor.languages.join(", ") : "",
+        fullName: doctor.fullName ?? "",
+        specialization: doctor.specialization ?? "",
+        status: doctor.status ?? "",
+        experience: doctor.experience ? String(doctor.experience) : "", // həmişə string
+        email: doctor.email ?? "",
+        phone: doctor.phone ?? "",
+        bio: doctor.bio ?? "",
+        department: doctor.department ?? "",
+        address: doctor.address ?? "",
+        languages: Array.isArray(doctor.languages)
+          ? doctor.languages.join(", ")
+          : doctor.languages ?? "", // undefined → "" (controlled)
       });
     }
-  }, [doctor, form]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [doctor]);
 
   const onSubmit = async (values: z.infer<typeof formSchema>) => {
     setIsSubmitting(true);
@@ -121,16 +109,10 @@ export default function EditDoctorPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(values),
       });
-
       if (!res.ok) throw new Error("Failed to update doctor");
-
-      toast({
-        title: "Doctor updated",
-        description: "The doctor's profile was successfully updated.",
-      });
-
+      toast({ title: "Doctor updated", description: "The doctor's profile was successfully updated." });
       router.push(`/dashboard/doctors/${doctorId}`);
-    } catch (error) {
+    } catch {
       toast({ title: "Error", description: "Something went wrong." });
     } finally {
       setIsSubmitting(false);
@@ -157,13 +139,13 @@ export default function EditDoctorPage() {
           <Card>
             <CardHeader>
               <CardTitle>Doctor Information</CardTitle>
-              <CardDescription>Update the doctor's personal information</CardDescription>
+              <CardDescription>Update the doctor's personal and professional information</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <FormField
                   control={form.control}
-                  name="name"
+                  name="fullName"
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>Full Name</FormLabel>
@@ -179,7 +161,7 @@ export default function EditDoctorPage() {
                   name="specialization"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>specialization</FormLabel>
+                      <FormLabel>Specialization</FormLabel>
                       <Select onValueChange={field.onChange} value={field.value}>
                         <FormControl>
                           <SelectTrigger>
@@ -188,9 +170,7 @@ export default function EditDoctorPage() {
                         </FormControl>
                         <SelectContent>
                           {specialties.map((sp) => (
-                            <SelectItem key={sp} value={sp}>
-                              {sp}
-                            </SelectItem>
+                            <SelectItem key={sp} value={sp}>{sp}</SelectItem>
                           ))}
                         </SelectContent>
                       </Select>
@@ -244,9 +224,7 @@ export default function EditDoctorPage() {
                         </FormControl>
                         <SelectContent>
                           {statuses.map((st) => (
-                            <SelectItem key={st} value={st}>
-                              {st}
-                            </SelectItem>
+                            <SelectItem key={st} value={st}>{st}</SelectItem>
                           ))}
                         </SelectContent>
                       </Select>
@@ -261,7 +239,8 @@ export default function EditDoctorPage() {
                     <FormItem>
                       <FormLabel>Years of Experience</FormLabel>
                       <FormControl>
-                        <Input type="number" min={0} {...field} />
+                        {/* string saxlanır → dəyişməyəcək, warning çıxmayacaq */}
+                        <Input inputMode="numeric" placeholder="0" {...field} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -283,9 +262,7 @@ export default function EditDoctorPage() {
                       </FormControl>
                       <SelectContent>
                         {departments.map((d) => (
-                          <SelectItem key={d} value={d}>
-                            {d}
-                          </SelectItem>
+                          <SelectItem key={d} value={d}>{d}</SelectItem>
                         ))}
                       </SelectContent>
                     </Select>

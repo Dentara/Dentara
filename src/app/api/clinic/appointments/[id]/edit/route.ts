@@ -1,68 +1,66 @@
-import { NextRequest, NextResponse } from "next/server";
-import { z } from "zod";
-import { db } from "@/lib/db";
+import { NextResponse } from "next/server";
+import prisma from "@/lib/prisma";
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 
-// Schema (edit səhifəsindən götürülüb)
-const appointmentSchema = z.object({
-  date: z.string().min(1),
-  time: z.string().min(1),
-  endTime: z.string().min(1),
-  doctorId: z.string().min(1),
-  department: z.string().min(1),
-  type: z.string().min(1),
-  duration: z.string().min(1),
-  room: z.string().min(1),
-  reasonForVisit: z.string().min(1),
-  notes: z.string().optional(),
-});
+type EditableFields = {
+  date?: string;
+  time?: string;
+  status?: string;
+  type?: string;
+  duration?: number;
+  department?: string;
+  toothNumber?: string;
+  procedureType?: string;
+  price?: number;
+};
 
-// GET – gətir appointment məlumatı
-export async function GET(
-  req: NextRequest,
-  context: { params: Promise<{ id: string }> }
+export async function PUT(
+  req: Request,
+  { params }: { params: { id: string } }
 ) {
-  const { id } = await context.params;
-
   try {
-    const appointment = await db.appointment.findUnique({
+    const session = await getServerSession(authOptions);
+    const user: any = session?.user;
+    if (!user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+    const clinicId = user.role === "clinic" ? user.id : user.clinicId || null;
+    if (!clinicId) return NextResponse.json({ error: "No clinicId bound" }, { status: 403 });
+
+    const id = params.id;
+
+    const body = (await req.json()) as EditableFields;
+
+    // Bu təyinat həqiqətən bu klinikaya məxsusdurmu?
+    const appt = await prisma.appointment.findUnique({
       where: { id },
+      select: { clinicId: true },
+    });
+    if (!appt || appt.clinicId !== clinicId) {
+      return NextResponse.json({ error: "Not found" }, { status: 404 });
+    }
+
+    // Yalnız icazə verilən sahələri yenilə
+    const data: EditableFields = {};
+    const keys: (keyof EditableFields)[] = [
+      "date","time","status","type","duration","department","toothNumber","procedureType","price"
+    ];
+    for (const k of keys) {
+      if (typeof body[k] !== "undefined") (data as any)[k] = body[k];
+    }
+
+    const updated = await prisma.appointment.update({
+      where: { id },
+      data,
       include: {
-        patient: { select: { name: true } },
-        doctor: { select: { name: true, department: true, id: true } },
+        patient: { select: { name: true, image: true } },
+        doctor:  { select: { fullName: true } },
       },
     });
 
-    if (!appointment) {
-      return NextResponse.json({ message: "Appointment not found" }, { status: 404 });
-    }
-
-    return NextResponse.json(appointment);
-  } catch (error) {
-    return NextResponse.json({ message: "Server error", error }, { status: 500 });
-  }
-}
-
-// PATCH – redaktə et appointment
-export async function PATCH(
-  req: NextRequest,
-  context: { params: Promise<{ id: string }> }
-) {
-  const { id } = await context.params;
-  const body = await req.json();
-
-  const parsed = appointmentSchema.safeParse(body);
-  if (!parsed.success) {
-    return NextResponse.json({ message: "Validation error", errors: parsed.error.format() }, { status: 400 });
-  }
-
-  try {
-    const updated = await db.appointment.update({
-      where: { id },
-      data: parsed.data,
-    });
-
     return NextResponse.json(updated);
-  } catch (error) {
-    return NextResponse.json({ message: "Update failed", error }, { status: 500 });
+  } catch (e) {
+    console.error("PUT /api/clinic/appointments/[id]/edit error:", e);
+    return NextResponse.json({ error: "Failed to update appointment" }, { status: 500 });
   }
 }

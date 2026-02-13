@@ -1,86 +1,61 @@
 import { NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 
 export async function GET() {
   try {
-    const clinicId = "demo-clinic-id"; // Sonra sessiyadan götürüləcək
+    const session = await getServerSession(authOptions);
+    const user: any = session?.user;
+    if (!user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+    // clinic hesabı → clinicId = user.id
+    // doctor hesabı üçün ClinicDoctor əlaqəsindən də götürmək olar (indilik clinic hesabı kifayətdir)
+    const clinicId = user.role === "clinic" ? user.id : user.clinicId || null;
+    if (!clinicId) return NextResponse.json({ error: "No clinicId bound" }, { status: 403 });
 
     const now = new Date();
-    const startOfThisMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-    const startOfLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-    const endOfLastMonth = new Date(now.getFullYear(), now.getMonth(), 0);
+    const startThis = new Date(now.getFullYear(), now.getMonth(), 1);
+    const startLast = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    const endLast = new Date(now.getFullYear(), now.getMonth(), 0);
 
-    // Cari və keçən ayın maliyyə göstəriciləri
-    const [thisMonthRevenue, lastMonthRevenue] = await Promise.all([
-      prisma.billing.aggregate({
-        _sum: { amount: true },
-        where: {
-          clinicId,
-          createdAt: { gte: startOfThisMonth },
-        },
-      }),
-      prisma.billing.aggregate({
-        _sum: { amount: true },
-        where: {
-          clinicId,
-          createdAt: { gte: startOfLastMonth, lte: endOfLastMonth },
-        },
-      }),
+    const [sumThis, sumLast] = await Promise.all([
+      prisma.billing.aggregate({ _sum: { amount: true }, where: { clinicId, createdAt: { gte: startThis } } }),
+      prisma.billing.aggregate({ _sum: { amount: true }, where: { clinicId, createdAt: { gte: startLast, lte: endLast } } }),
     ]);
 
-    const [thisMonthAppointments, lastMonthAppointments] = await Promise.all([
-      prisma.appointment.count({
-        where: { clinicId, createdAt: { gte: startOfThisMonth } },
-      }),
-      prisma.appointment.count({
-        where: { clinicId, createdAt: { gte: startOfLastMonth, lte: endOfLastMonth } },
-      }),
+    const [patientsThis, patientsLast] = await Promise.all([
+      prisma.clinicPatient.count({ where: { clinicId, createdAt: { gte: startThis } } }),
+      prisma.clinicPatient.count({ where: { clinicId, createdAt: { gte: startLast, lte: endLast } } }),
     ]);
 
-    const [thisMonthPatients, lastMonthPatients] = await Promise.all([
-      prisma.clinicPatient.count({
-        where: { clinicId, createdAt: { gte: startOfThisMonth } },
-      }),
-      prisma.clinicPatient.count({
-        where: { clinicId, createdAt: { gte: startOfLastMonth, lte: endOfLastMonth } },
-      }),
+    const [staffThis, staffLast] = await Promise.all([
+      prisma.clinicDoctor.count({ where: { clinicId, joinedAt: { gte: startThis } } }),
+      prisma.clinicDoctor.count({ where: { clinicId, joinedAt: { gte: startLast, lte: endLast } } }),
     ]);
 
-    const [thisMonthStaff, lastMonthStaff] = await Promise.all([
-      prisma.clinicDoctor.count({
-        where: {
-          clinicId,
-          role: "DOCTOR", // əgər enum StaffRole istifadə edirsənsə
-          joinedAt: { gte: startOfThisMonth },
-        },
-      }),
-      prisma.clinicDoctor.count({
-        where: {
-          clinicId,
-          role: "DOCTOR",
-          joinedAt: { gte: startOfLastMonth, lte: endOfLastMonth },
-        },
-      }),
+    const [apptThis, apptLast] = await Promise.all([
+      prisma.appointment.count({ where: { clinicId, createdAt: { gte: startThis } } }),
+      prisma.appointment.count({ where: { clinicId, createdAt: { gte: startLast, lte: endLast } } }),
     ]);
 
-
-    const calcChange = (current: number, previous: number) => {
-      if (previous === 0) return current > 0 ? 100 : 0;
-      return ((current - previous) / previous) * 100;
-    };
+    const revenue = sumThis._sum.amount ?? 0;
+    const lastRevenue = sumLast._sum.amount ?? 0;
+    const pct = (cur: number, prev: number) =>
+      prev > 0 ? ((cur - prev) / prev) * 100 : cur > 0 ? 100 : 0;
 
     return NextResponse.json({
-      revenue: thisMonthRevenue._sum.amount || 0,
-      revenueChange: calcChange(thisMonthRevenue._sum.amount ?? 0, lastMonthRevenue._sum.amount ?? 0),
-      appointments: thisMonthAppointments,
-      appointmentsChange: calcChange(thisMonthAppointments, lastMonthAppointments),
-      patients: thisMonthPatients,
-      patientsChange: calcChange(thisMonthPatients, lastMonthPatients),
-      staff: thisMonthStaff,
-      staffChange: thisMonthStaff - lastMonthStaff,
+      revenue,
+      revenueChange: pct(revenue, lastRevenue),
+      patients: patientsThis,
+      patientsChange: patientsLast > 0 ? ((patientsThis - patientsLast) / patientsLast) * 100 : (patientsThis > 0 ? 100 : 0),
+      staff: staffThis,
+      staffChange: staffThis - staffLast, // UI “new this month” kimi göstərir
+      appointments: apptThis,
+      appointmentsChange: apptLast > 0 ? ((apptThis - apptLast) / apptLast) * 100 : (apptThis > 0 ? 100 : 0),
     });
-  } catch (error) {
-    console.error("API error:", error);
-    return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
+  } catch (e) {
+    console.error("GET /api/clinic/stats", e);
+    return NextResponse.json({ error: "Failed" }, { status: 500 });
   }
 }

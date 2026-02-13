@@ -1,6 +1,3 @@
-// This is your Prisma schema file
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
 datasource db {
   provider          = "postgresql"
   url               = env("DATABASE_URL")
@@ -10,6 +7,67 @@ datasource db {
 generator client {
   provider = "prisma-client-js"
 }
+
+/**
+ * =====================
+ * ====== ENUMS ========
+ * =====================
+ */
+
+enum StaffRole {
+  DOCTOR
+  HYGIENIST
+  ADMIN
+  NURSE
+  RECEPTION
+  ASSISTANT
+  admin
+  manager
+  receptionist
+}
+
+enum MembershipStatus {
+  INVITED
+  ACTIVE
+  SUSPENDED
+  ARCHIVED
+}
+
+enum ActorType {
+  CLINIC
+  DOCTOR
+  SYSTEM
+}
+
+enum ResourceType {
+  XRAY
+  PHOTO
+  DOC
+  NOTE
+  LAB
+  OTHER
+}
+
+enum ActionType {
+  READ
+  UPDATE
+  DOWNLOAD
+  CREATE
+  DELETE
+}
+
+enum FileVisibility {
+  PRIVATE // yalnız pasiyent
+  CLINIC // pasiyentin linkli olduğu klinikalar
+  DOCTOR // pasiyentin grant verdiyi həkim(lər)
+  GRANTED // yalnız grant scope-u çərçivəsində
+}
+
+/**
+ * =====================
+ * ====== AUTH =========
+ * =====================
+ */
 
 model Account {
   id                String  @id @default(cuid())
@@ -39,31 +97,58 @@ model Session {
 }
 
 model User {
-  id                    String    @id @default(cuid())
-  name                  String?
-  fullname              String?
-  email                 String?   @unique
-  emailVerified         DateTime?
-  image                 String?
-  password              String?
-  passwordResetToken    String?   @unique
-  passwordResetTokenExp DateTime?
-  role                  String    @default("patient")
-  phone                 String?
-  status                String    @default("pending")
-  documents             String[]
-  emailConfirmed        Boolean   @default(false)
-  verificationToken     String?
-  tokenExpires          DateTime?
-
+  id                       String              @id @default(cuid())
+  name                     String?
+  fullname                 String?
+  email                    String?             @unique
+  emailVerified            DateTime?
+  image                    String?
+  password                 String?
+  passwordResetToken       String?             @unique
+  passwordResetTokenExp    DateTime?
+  role                     String              @default("patient")
+  phone                    String?
+  status                   String              @default("pending")
+  documents                String[]
+  emailConfirmed           Boolean             @default(false)
+  verificationToken        String?
+  tokenExpires             DateTime?
+  addressLine1             String?
+  addressLine2             String?
+  city                     String?
+  country                  String?
+  avatarUrl                String? // ← patient & clinic uploads read this
   accounts                 Account[]
+  hasCompletedOnboarding Boolean @default(false)
   sessions                 Session[]
   doctorRequests           DoctorRequest[]     @relation("DentistRequests")
   clinicMemberships        ClinicDoctor[]
   clinicUsers              ClinicUser[]
   auditLogs                AuditLog[]
   passwordResetTokenRecord PasswordResetToken?
+  publicProfile            PublicProfile?        @relation("UserPublicProfile")
+  privacySettings          ProfilePrivacySettings? @relation("UserPrivacySettings")
+  // Multi-clinic & files/grants
+  clinicPatientLinks ClinicPatient[] @relation("ClinicPatient_user")
+
+  // ⇄ PatientFile (User faylları)
+  patientFiles PatientFile[] @relation("UserToPatientFiles")
+
+  patientGrants PatientDataGrant[]
+  AccessLog     AccessLog[]
+
+  // ⇄ PatientAlbum (User albomları)
+  patientAlbums PatientAlbum[]   @relation("UserToPatientAlbums")
+  treatments    TreatmentEntry[] @relation("UserToTreatmentEntries")
+
+  @@index([role])
 }
+
+/**
+ * =====================
+ * ====== EMAIL ========
+ * =====================
+ */
 
 model VerificationToken {
   id         String   @id @default(cuid())
@@ -73,6 +158,20 @@ model VerificationToken {
 
   @@unique([identifier, token])
 }
+
+model EmailVerificationToken {
+  id        String   @id @default(cuid())
+  email     String
+  token     String   @unique
+  createdAt DateTime @default(now())
+  expiresAt DateTime
+}
+
+/**
+ * =====================
+ * ====== REQUESTS =====
+ * =====================
+ */
 
 model DoctorRequest {
   id        String   @id @default(cuid())
@@ -86,49 +185,70 @@ model DoctorRequest {
   dentist User @relation(name: "DentistRequests", fields: [dentistId], references: [id])
 }
 
+/**
+ * =====================
+ * ====== CORE =========
+ * =====================
+ */
+
 model Clinic {
   id          String   @id @default(cuid())
   name        String
   email       String   @unique
   phone       String?
+  country     String?
+  city        String?
   address     String?
   website     String?
   licenseFile String?
   createdAt   DateTime @default(now())
 
-  doctors      ClinicDoctor[]
-  patients     ClinicPatient[]
-  users        ClinicUser[]
-  doctorList   Doctor[]
-  appointments Appointment[]
-  files        ClinicFile[]
-  billings     Billing[]
-}
-
-enum StaffRole {
-  DOCTOR
-  HYGIENIST
-  ASSISTANT
-  NURSE
-  admin
-  manager
-  receptionist
+  doctors            ClinicDoctor[]
+  patients           ClinicPatient[]
+  users              ClinicUser[]
+  doctorList         Doctor[]
+  appointments       Appointment[]
+  files              ClinicFile[]
+  billings           Billing[]
+  LabResult          LabResult[]
+  Diagnosis          Diagnosis[]
+  Visit              Visit[]
+  Procedure          Procedure[]
+  Immunization       Immunization[]
+  employmentHistory  DoctorEmploymentHistory[] @relation("ClinicToEmployment")
+  AppointmentRequest AppointmentRequest[]
+  treatments         TreatmentEntry[]          @relation("ClinicToTreatmentEntries")
+  ratingAvg          Float?                    @default(0)
+  ratingCount        Int?                      @default(0)
+  ClinicReview       ClinicReview[]
 }
 
 model ClinicDoctor {
-  id       String    @id @default(cuid())
+  id       String           @id @default(cuid())
   clinicId String
   userId   String
-  role     StaffRole @default(DOCTOR)
-  joinedAt DateTime  @default(now())
+  role     StaffRole        @default(DOCTOR)
+  status   MembershipStatus @default(ACTIVE)
+  joinedAt DateTime         @default(now())
+
+  // Dəvət / auto-link üçün
+  inviteToken     String?
+  inviteCode      String?
+  inviteExpiresAt DateTime?
 
   clinic Clinic @relation(fields: [clinicId], references: [id])
   user   User   @relation(fields: [userId], references: [id])
+
+  @@unique([clinicId, userId])
+  @@index([userId])
+  @@index([clinicId, status])
 }
 
 model ClinicPatient {
-  id        String    @id @default(cuid())
-  clinicId  String
+  id       String @id @default(cuid())
+  clinicId String
+
+  // Klinika səviyyəli profil
   fullName  String
   birthDate DateTime?
   phone     String?
@@ -138,11 +258,28 @@ model ClinicPatient {
   address   String?   @default("")
   createdAt DateTime  @default(now())
 
+  // Self-account və global EMR linkləri
+  patientUserId   String? // User.id
+  patientGlobalId String? // Patient.id
+
+  status          MembershipStatus @default(ACTIVE)
+  inviteToken     String?
+  inviteCode      String?
+  inviteExpiresAt DateTime?
+
   clinic       Clinic              @relation(fields: [clinicId], references: [id])
   notes        ClinicPatientNote[]
   appointments Appointment[]
   medicalNotes ClinicMedicalNote[]
   files        ClinicFile[]
+
+  patientUser   User?    @relation("ClinicPatient_user", fields: [patientUserId], references: [id])
+  patientGlobal Patient? @relation(fields: [patientGlobalId], references: [id])
+
+  @@index([clinicId, email])
+  @@index([patientUserId])
+  @@index([patientGlobalId])
+  @@index([clinicId, status])
 }
 
 model ClinicPatientNote {
@@ -175,6 +312,9 @@ model ClinicMedicalNote {
   patient     ClinicPatient @relation(fields: [patientId], references: [id])
   appointment Appointment?  @relation(fields: [appointmentId], references: [id])
   doctor      Doctor        @relation(fields: [doctorId], references: [id])
+
+  @@index([patientId])
+  @@index([doctorId])
 }
 
 model ClinicFile {
@@ -190,6 +330,48 @@ model ClinicFile {
   clinic      Clinic         @relation(fields: [clinicId], references: [id])
   patient     ClinicPatient? @relation(fields: [patientId], references: [id])
   appointment Appointment?   @relation(fields: [appointmentId], references: [id])
+
+  @@index([clinicId])
+  @@index([patientId])
+}
+
+// Pasiyentə məxsus fayllar (öz hesabında görünən)
+model PatientFile {
+  id                     String         @id @default(cuid())
+  patientUserId          String
+  type                   ResourceType
+  title                  String
+  path                   String
+  mime                   String?
+  visibility             FileVisibility @default(PRIVATE)
+  uploadedByType         ActorType      @default(SYSTEM)
+  uploadedByClinicId     String?
+  uploadedByDoctorUserId String?
+  createdAt              DateTime       @default(now())
+
+  // ⇄ User (fayl sahibinin user-id-si)
+  patientUser User @relation("UserToPatientFiles", fields: [patientUserId], references: [id])
+
+  // ⇄ PatientAlbum (opsional)
+  albumId String?
+  album   PatientAlbum? @relation(fields: [albumId], references: [id])
+
+  // ⇄ Patient (EMR pasiyent obyektinə ayrıca bağlama – opsional)
+  patientId String?
+  patient   Patient? @relation("PatientToFiles", fields: [patientId], references: [id])
+
+  // media meta
+  width                Int?
+  height               Int?
+  sizeBytes            Int?
+  thumbnail            String?
+  treatmentAttachments TreatmentAttachment[] @relation("PatientFileToTreatmentAttachments")
+
+  @@index([patientUserId])
+  @@index([uploadedByClinicId])
+  @@index([uploadedByDoctorUserId])
+  @@index([albumId])
+  @@index([patientId])
 }
 
 model ClinicUser {
@@ -206,6 +388,12 @@ model ClinicUser {
   @@unique([clinicId, userId])
 }
 
+/**
+ * =====================
+ * ====== AUDIT =========
+ * =====================
+ */
+
 model AuditLog {
   id         String   @id @default(cuid())
   userId     String
@@ -217,7 +405,54 @@ model AuditLog {
   timestamp  DateTime @default(now())
 
   user User @relation(fields: [userId], references: [id])
+
+  @@index([clinicId])
+  @@index([userId, timestamp])
 }
+
+// İcazə/Grant və Giriş logları (view/update)
+
+model PatientDataGrant {
+  id                  String    @id @default(cuid())
+  patientUserId       String
+  granteeType         ActorType // CLINIC və ya DOCTOR
+  granteeClinicId     String?
+  granteeDoctorUserId String?
+  scopes              Json      @default("[]") // ["charts","xrays","attachments","billing"]
+  expiresAt           DateTime?
+  revokedAt           DateTime?
+  createdAt           DateTime  @default(now())
+
+  patientUser User @relation(fields: [patientUserId], references: [id])
+
+  @@index([patientUserId])
+  @@index([granteeClinicId])
+  @@index([granteeDoctorUserId])
+  @@index([expiresAt])
+}
+
+model AccessLog {
+  id            String       @id @default(cuid())
+  actorType     ActorType
+  actorId       String?
+  patientUserId String
+  resourceType  ResourceType
+  resourceId    String?
+  action        ActionType
+  timestamp     DateTime     @default(now())
+  ip            String?
+
+  patientUser User @relation(fields: [patientUserId], references: [id])
+
+  @@index([patientUserId, timestamp])
+  @@index([actorType, actorId])
+}
+
+/**
+ * =====================
+ * ====== SECURITY =====
+ * =====================
+ */
 
 model PasswordResetToken {
   id        String   @id @default(cuid())
@@ -228,56 +463,97 @@ model PasswordResetToken {
   createdAt DateTime @default(now())
 }
 
+/**
+ * =====================
+ * ====== DOMAIN =======
+ * =====================
+ */
+
+model Specialization {
+  id          String   @id @default(uuid())
+  name        String   @unique
+  description String?
+  department  String?
+  status      String?
+  doctors     Doctor[] @relation("DoctorSpecialization")
+}
+
 model Doctor {
-  id                      String    @id @default(cuid())
+  id                      String                    @id @default(cuid())
   fullName                String
-  profilePhoto            String
+  fatherName              String?
+  profilePhoto            String?
   gender                  String?
   dob                     DateTime?
+  birthDate               DateTime?
   address                 String?
   city                    String?
+  nationality             String?
   state                   String?
   zip                     String?
-  email                   String    @unique
+  passportNumber          String?
+  country                 String?
+  email                   String?
   phone                   String?
+  primarySpecialization   String?
+  secondarySpecialization String?
   emergencyContactName    String?
   emergencyContactPhone   String?
   specialization          String?
-  secondarySpecialization String?
   licenseNumber           String?
   licenseExpiryDate       DateTime?
   qualifications          String?
-  experience              Int?
+  experience              String?
+  bio                     String?
+  licenseFile             String?
   education               String?
+  diplomaFile             String?
   certifications          String?
+  diplomaAdditions        String[]                  @default([])
+  certificates            Json                      @default("[]")
+  workplaces              Json                      @default("[]")
   department              String?
   position                String?
   username                String?
   password                String?
   emailAccount            String?
-  accessPatients          Boolean   @default(false)
-  accessPrescriptions     Boolean   @default(false)
-  accessBilling           Boolean   @default(false)
-  accessReports           Boolean   @default(false)
-  notifyAppointments      Boolean   @default(true)
-  notifyPatients          Boolean   @default(true)
-  notifySystem            Boolean   @default(true)
-  status                  String    @default("Active")
-  createdAt               DateTime  @default(now())
-  updatedAt               DateTime  @updatedAt
+  accessPatients          Boolean                   @default(false)
+  accessPrescriptions     Boolean                   @default(false)
+  accessBilling           Boolean                   @default(false)
+  accessReports           Boolean                   @default(false)
+  notifyAppointments      Boolean                   @default(true)
+  notifyPatients          Boolean                   @default(true)
+  notifySystem            Boolean                   @default(true)
+  status                  String                    @default("Active")
+  createdAt               DateTime                  @default(now())
+  updatedAt               DateTime                  @updatedAt
+  employmentHistory       DoctorEmploymentHistory[] @relation("DoctorToEmployment")
+  clinic                  Clinic?                   @relation(fields: [clinicId], references: [id])
+  clinicId                String?
+  schedules               Schedule[]
+  appointments            Appointment[]
+  medicalNotes            ClinicMedicalNote[]
+  prescriptions           Prescription[]
+  specializations         Specialization[]          @relation("DoctorSpecialization")
+  LabResult               LabResult[]
+  Diagnosis               Diagnosis[]
+  Visit                   Visit[]
+  Procedure               Procedure[]
+  Immunization            Immunization[]
+  AppointmentRequest      AppointmentRequest[]
+  treatments              TreatmentEntry[]          @relation("DoctorToTreatmentEntries")
+  privatePatients         DoctorPrivatePatient[]    @relation("DoctorToPrivatePatients")
+  ratingAvg               Float?                    @default(0)
+  ratingCount             Int?                      @default(0)
 
-  clinicId     String
-  clinic       Clinic              @relation(fields: [clinicId], references: [id])
-  schedules    Schedule[]
-  appointments Appointment[]
-  medicalNotes ClinicMedicalNote[]
+  @@unique([clinicId, email])
 }
 
 model Appointment {
   id        String   @id @default(cuid())
   clinicId  String
   doctorId  String
-  patientId String
+  patientId String?
   date      DateTime
   time      String   @default("")
   endTime   String   @default("")
@@ -288,18 +564,23 @@ model Appointment {
   createdAt DateTime @default(now())
   updatedAt DateTime @default(now()) @updatedAt
 
-  // Relations
   clinic          Clinic         @relation(fields: [clinicId], references: [id])
   doctor          Doctor         @relation(fields: [doctorId], references: [id])
-  patient         Patient        @relation(fields: [patientId], references: [id])
+  patient         Patient?       @relation(fields: [patientId], references: [id])
   clinicPatient   ClinicPatient? @relation(fields: [clinicPatientId], references: [id])
   clinicPatientId String?
 
   vitalSignId String?          @unique
   vitalSigns  ClinicVitalSign? @relation(fields: [vitalSignId], references: [id])
 
-  medicalNotes ClinicMedicalNote[]
-  files        ClinicFile[]
+  medicalNotes    ClinicMedicalNote[]
+  files           ClinicFile[]
+  reminder24hSent Boolean             @default(false)
+  reminder2hSent  Boolean             @default(false)
+
+  @@index([clinicId])
+  @@index([doctorId])
+  @@index([patientId])
 }
 
 model ClinicVitalSign {
@@ -330,47 +611,38 @@ model Billing {
   patientId   String
   clinic      Clinic      @relation(fields: [clinicId], references: [id])
   LabResult   LabResult[]
+
+  @@index([clinicId])
+  @@index([patientId])
 }
 
 model Prescription {
-  id         String   @id @default(uuid())
-  patient    Patient  @relation(fields: [patientId], references: [id])
-  patientId  String
-  medication String
-  dosage     String
-  frequency  String
-  startDate  DateTime
-  endDate    String
-  doctor     String
-  status     String
-  refills    Int
+  id          String   @id @default(uuid())
+  patientId   String
+  doctorId    String
+  date        DateTime
+  diagnosis   String?
+  notes       String?
+  medications Json
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  patient Patient @relation(fields: [patientId], references: [id])
+  doctor  Doctor  @relation(fields: [doctorId], references: [id])
+
+  @@index([patientId])
+  @@index([doctorId])
 }
 
-model LabResult {
-  id        String          @id @default(uuid())
-  patient   Patient         @relation(fields: [patientId], references: [id])
-  patientId String
-  date      DateTime
-  type      String          @default("")
-  orderedBy String
-  billing   Billing?        @relation(fields: [billingId], references: [id])
-  status    String
-  results   LabResultItem[]
-  billingId String?
-}
-
-model LabResultItem {
-  id          String    @id @default(uuid())
-  labResult   LabResult @relation(fields: [labResultId], references: [id])
-  labResultId String
+model PrescriptionTemplate {
+  id          String   @id @default(uuid())
   name        String
-  value       String
-  range       String
-  flag        String
+  medications Json
+  createdAt   DateTime @default(now())
 }
 
 model Patient {
-  id                 String   @id @default(uuid())
+  id                 String                 @id @default(uuid())
   name               String
   email              String
   phone              String
@@ -404,67 +676,39 @@ model Patient {
   billingMethod      String
   primaryDoctor      String
   registrationDate   DateTime
-  createdAt          DateTime @default(now())
+  createdAt          DateTime               @default(now())
   conditions         String[]
+  emergencyContact   String?
+  toothPref          String?
+  dentalNotes        String?
+  smokingStatus      String?
+  status             String                 @default("Active")
+  lastVisit          DateTime?
+  condition          String                 @default("")
+  doctor             String                 @default("")
+  image              String?                @default("")
+  privateDoctors     DoctorPrivatePatient[] @relation("PatientToPrivateDoctors")
+  appointments       Appointment[]
+  prescriptions      Prescription[]
+  labResults         LabResult[]
+  billing            Billing[]
+  diagnoses          Diagnosis[]
+  visits             Visit[]
+  procedures         Procedure[]
+  immunizations      Immunization[]
+  treatmentReviews   TreatmentReview[]
 
-  status    String    @default("Active")
-  lastVisit DateTime?
-  condition String    @default("")
-  doctor    String    @default("")
-  image     String?   @default("")
+  // ClinicPatient.patientGlobal ilə tək-tərəfli əlaqənin əksi
+  clinicPatients     ClinicPatient[]
+  AppointmentRequest AppointmentRequest[]
 
-  appointments  Appointment[]
-  prescriptions Prescription[]
-  labResults    LabResult[]
-  billing       Billing[]
-  diagnoses     Diagnosis[]
-  visits        Visit[]
-  procedures    Procedure[]
-  immunizations Immunization[]
-}
+  // ⇄ PatientFile / PatientAlbum (EMR pasiyenti ilə əlaqə)
+  patientFiles        PatientFile[]         @relation("PatientToFiles")
+  patientAlbums       PatientAlbum[]        @relation("PatientToAlbums")
+  PatientNotification PatientNotification[]
+  treatments          TreatmentEntry[]      @relation("PatientToTreatmentEntries")
 
-model Diagnosis {
-  id        String   @id @default(uuid())
-  patient   Patient  @relation(fields: [patientId], references: [id])
-  patientId String
-  date      DateTime
-  condition String
-  doctor    String
-  notes     String?
-  status    String
-}
-
-model Visit {
-  id         String   @id @default(uuid())
-  patient    Patient  @relation(fields: [patientId], references: [id])
-  patientId  String
-  date       DateTime
-  type       String   @default("")
-  doctor     String
-  department String
-  notes      String?
-}
-
-model Procedure {
-  id        String   @id @default(uuid())
-  patient   Patient  @relation(fields: [patientId], references: [id])
-  patientId String
-  date      DateTime
-  procedure String
-  doctor    String
-  location  String
-  notes     String?
-}
-
-model Immunization {
-  id            String   @id @default(uuid())
-  patient       Patient  @relation(fields: [patientId], references: [id])
-  patientId     String
-  date          DateTime
-  vaccine       String
-  administrator String
-  location      String
-  notes         String?
+  @@index([email])
 }
 
 model Schedule {
@@ -478,4 +722,540 @@ model Schedule {
   friday    String?
   saturday  String?
   sunday    String?
+}
+
+model LabResult {
+  id        String   @id @default(cuid())
+  clinicId  String?
+  patientId String?
+  doctorId  String?
+  type      String?
+  fileUrl   String?
+  notes     String?
+  createdAt DateTime @default(now())
+
+  clinic    Clinic?  @relation(fields: [clinicId], references: [id])
+  patient   Patient? @relation(fields: [patientId], references: [id])
+  doctor    Doctor?  @relation(fields: [doctorId], references: [id])
+  Billing   Billing? @relation(fields: [billingId], references: [id])
+  billingId String?
+
+  @@index([clinicId])
+  @@index([patientId])
+  @@index([doctorId])
+}
+
+model Diagnosis {
+  id          String   @id @default(cuid())
+  clinicId    String?
+  patientId   String?
+  doctorId    String?
+  title       String?
+  description String?
+  createdAt   DateTime @default(now())
+
+  clinic  Clinic?  @relation(fields: [clinicId], references: [id])
+  patient Patient? @relation(fields: [patientId], references: [id])
+  doctor  Doctor?  @relation(fields: [doctorId], references: [id])
+
+  @@index([clinicId])
+  @@index([patientId])
+  @@index([doctorId])
+}
+
+model Visit {
+  id        String   @id @default(cuid())
+  clinicId  String?
+  patientId String?
+  doctorId  String?
+  date      DateTime @default(now())
+  purpose   String?
+  notes     String?
+
+  clinic  Clinic?  @relation(fields: [clinicId], references: [id])
+  patient Patient? @relation(fields: [patientId], references: [id])
+  doctor  Doctor?  @relation(fields: [doctorId], references: [id])
+
+  @@index([clinicId])
+  @@index([patientId])
+  @@index([doctorId])
+}
+
+model Procedure {
+  id          String   @id @default(cuid())
+  clinicId    String?
+  patientId   String?
+  doctorId    String?
+  name        String?
+  toothNumber String?
+  price       Float?
+  performedAt DateTime @default(now())
+  notes       String?
+
+  clinic  Clinic?  @relation(fields: [clinicId], references: [id])
+  patient Patient? @relation(fields: [patientId], references: [id])
+  doctor  Doctor?  @relation(fields: [doctorId], references: [id])
+
+  @@index([clinicId])
+  @@index([patientId])
+  @@index([doctorId])
+}
+
+model Immunization {
+  id        String   @id @default(cuid())
+  clinicId  String?
+  patientId String?
+  doctorId  String?
+  name      String?
+  date      DateTime @default(now())
+  notes     String?
+
+  clinic  Clinic?  @relation(fields: [clinicId], references: [id])
+  patient Patient? @relation(fields: [patientId], references: [id])
+  doctor  Doctor?  @relation(fields: [doctorId], references: [id])
+
+  @@index([clinicId])
+  @@index([patientId])
+  @@index([doctorId])
+}
+
+model DoctorEmploymentHistory {
+  id          String    @id @default(cuid())
+  doctorId    String?
+  clinicId    String?
+  startedAt   DateTime?
+  endedAt     DateTime
+  statusAtEnd String
+  reason      String?
+
+  doctorName String?
+  clinicName String?
+
+  doctor Doctor? @relation("DoctorToEmployment", fields: [doctorId], references: [id], onDelete: SetNull)
+  clinic Clinic? @relation("ClinicToEmployment", fields: [clinicId], references: [id], onDelete: SetNull)
+
+  @@index([doctorId, clinicId])
+}
+
+/**
+ * ===================== Appointment Request Enums =====================
+ */
+
+enum AppointmentRequestTargetType {
+  clinic
+  doctor
+}
+
+enum AppointmentRequestStatus {
+  pending
+  approved
+  rejected
+  cancelled
+  proposed
+}
+
+/**
+ * ===================== AppointmentRequest Model ======================
+ */
+
+model AppointmentRequest {
+  id String @id @default(cuid())
+
+  // Who requests
+  patientId String
+  patient   Patient @relation(fields: [patientId], references: [id])
+
+  // Target can be clinic or doctor
+  targetType AppointmentRequestTargetType
+  clinicId   String?
+  clinic     Clinic?                      @relation(fields: [clinicId], references: [id])
+
+  doctorId String?
+  doctor   Doctor? @relation(fields: [doctorId], references: [id])
+
+  // If doctor is not in system
+  targetDoctorEmail String?
+  targetDoctorName  String?
+
+  // When/what (original requested time)
+  date    DateTime
+  time    String
+  endTime String?
+  reason  String?
+  notes   String?
+
+  // --- Time proposal fields (clinic suggests a new time) ---
+  proposedDate    DateTime?
+  proposedTime    String?
+  proposedEndTime String?
+
+  // Lifecycle
+  status    AppointmentRequestStatus @default(pending)
+  createdAt DateTime                 @default(now())
+  updatedAt DateTime                 @updatedAt
+
+  @@index([patientId])
+  @@index([clinicId])
+  @@index([doctorId])
+  @@index([status])
+}
+
+/**
+ * ===================== PatientAlbum Model ============================
+ */
+
+model PatientAlbum {
+  id            String   @id @default(cuid())
+  patientUserId String
+  title         String
+  scope         String // "xrays" | "face" | "teeth" | "attachments" | "billing"
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  // ⇄ User
+  patientUser User @relation("UserToPatientAlbums", fields: [patientUserId], references: [id])
+
+  // ⇄ Patient (EMR) — opsional
+  patientId String?
+  patient   Patient? @relation("PatientToAlbums", fields: [patientId], references: [id])
+
+  files PatientFile[]
+
+  @@index([patientUserId, scope])
+  @@index([patientId])
+}
+
+/**
+ * ===================== PatientNotification Model =====================
+ */
+
+model PatientNotification {
+  id        String  @id @default(cuid())
+  patientId String
+  patient   Patient @relation(fields: [patientId], references: [id])
+
+  // tövsiyə olunan tiplər:
+  // "approved" | "rejected" | "request_proposed" | "patient_accepted" | "patient_declined"
+  type String
+
+  title     String
+  message   String
+  isRead    Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([patientId, isRead])
+}
+
+// ==========================
+// TREATMENT HISTORY — ENUMS
+// ==========================
+enum TreatmentStatus {
+  PLANNED
+  DONE
+  CANCELLED
+}
+
+enum TreatmentCategory {
+  EXAM
+  PREVENTIVE
+  RESTORATIVE
+  ENDODONTIC
+  PERIODONTIC
+  PROSTHETIC
+  ORTHODONTIC
+  SURGICAL
+  IMPLANT
+  OTHER
+}
+
+// ===========================
+// TREATMENT HISTORY — MODELS
+// ===========================
+model TreatmentEntry {
+  id            String            @id @default(cuid())
+  clinicId      String?
+  doctorId      String?
+
+  /// Patient.id — optional: join pasiyentlər üçün NULL ola bilər
+  patientId     String?
+  /// User.id — həmişə dolu, bütün EMR chain bunun üzərindən gedir
+  patientUserId String
+
+  date          DateTime
+  status        TreatmentStatus   @default(PLANNED)
+  category      TreatmentCategory
+  procedureCode String
+  procedureName String
+  notes         String?
+  price         Decimal?          @db.Decimal(12, 2)
+  implants      ImplantRecord[]
+  reviews       TreatmentReview[]
+
+  // tooth-level
+  teeth         TreatmentTooth[] // 1..n (bridge dəstəyi)
+  surfaces      String[] // ["M","O","D","B/F","L/P"] (opsional)
+
+  // attachments
+  attachments   TreatmentAttachment[]
+
+  // audit
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  // relations (adlandırılmış)
+  clinic      Clinic? @relation("ClinicToTreatmentEntries", fields: [clinicId], references: [id])
+  doctor      Doctor? @relation("DoctorToTreatmentEntries", fields: [doctorId], references: [id])
+
+  /// Patient relation artıq optional-dır
+  patient     Patient? @relation("PatientToTreatmentEntries", fields: [patientId], references: [id])
+  patientUser User     @relation("UserToTreatmentEntries", fields: [patientUserId], references: [id])
+
+  @@index([clinicId])
+  @@index([doctorId])
+  @@index([patientId])
+  @@index([patientUserId])
+  @@index([date])
+}
+
+model TreatmentTooth {
+  id         String          @id @default(cuid())
+  entryId    String
+  arch       String // "upper" | "lower"
+  quadrant   Int // 1..4
+  numberFDI  Int // 11..48 (və ya primary 51..85 gələcəkdə)
+  entry      TreatmentEntry  @relation(fields: [entryId], references: [id], onDelete: Cascade)
+  stateAfter ToothState?
+  implants   ImplantRecord[]
+
+  @@index([entryId])
+  @@index([numberFDI])
+}
+
+model TreatmentAttachment {
+  id            String @id @default(cuid())
+  entryId       String
+  patientFileId String // PatientFile.id
+
+  entry       TreatmentEntry @relation(fields: [entryId], references: [id], onDelete: Cascade)
+  patientFile PatientFile    @relation("PatientFileToTreatmentAttachments", fields: [patientFileId], references: [id])
+
+  @@index([entryId])
+  @@index([patientFileId])
+}
+
+// ==========================
+// TREATMENT – STATE & IMPLANT
+// ==========================
+
+enum ToothState {
+  NORMAL
+  RESTORED
+  RCT
+  CROWNED
+  EXTRACTED
+  IMPLANTED
+  MISSING
+  OTHER
+}
+
+// ===================
+// Implant information
+// ===================
+model ImplantRecord {
+  id               String   @id @default(cuid())
+  entryId          String
+  treatmentToothId String? // opsional: spesifik tooth entry-yə bağlamaq üçün
+  numberFDI        Int // implant hansi diş mövqeyindədir
+  system           String? // istehsalçı sistemi (örn. Straumann BLX)
+  size             String? // ölçü (örn. 4.1x10 mm)
+  lot              String? // lot/batch
+  manufacturer     String? // istehsalçı adı
+  notes            String?
+  placedAt         DateTime @default(now())
+
+  entry          TreatmentEntry  @relation(fields: [entryId], references: [id], onDelete: Cascade)
+  treatmentTooth TreatmentTooth? @relation(fields: [treatmentToothId], references: [id], onDelete: SetNull)
+
+  @@index([entryId])
+  @@index([treatmentToothId])
+  @@index([numberFDI])
+}
+
+model DoctorPrivatePatient {
+  id        String   @id @default(cuid())
+  doctorId  String
+  patientId String
+  createdAt DateTime @default(now())
+
+  // Explicit relation names (qarşı sahələr üçün eyni adlardan istifadə edəcəyik)
+  doctor  Doctor  @relation("DoctorToPrivatePatients", fields: [doctorId], references: [id])
+  patient Patient @relation("PatientToPrivateDoctors", fields: [patientId], references: [id])
+
+  @@unique([doctorId, patientId])
+  @@index([doctorId])
+  @@index([patientId])
+}
+
+model AccountSession {
+  id        String    @id @default(cuid())
+  userId    String
+  userAgent String
+  device    String // "Chrome 141 on Windows 10" kimi
+  ip        String
+  createdAt DateTime  @default(now())
+  lastSeen  DateTime  @default(now())
+  revokedAt DateTime?
+
+  @@index([userId])
+}
+
+model TreatmentReview {
+  id String @id @default(cuid())
+  patientId     String?
+  treatmentId String
+  treatment   TreatmentEntry @relation(fields: [treatmentId], references: [id])
+
+  /// Həmin müalicənin aid olduğu Patient (kliniki subyekt)
+  patient       Patient? @relation(fields: [patientId], references: [id])
+
+  /// Real login edən istifadəçi (User.id) – auth üçün
+  patientUserId String
+
+  rating  Int // 1–5
+  comment String?
+
+  isPublic  Boolean @default(true)
+  isFlagged Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([treatmentId, patientUserId])
+  @@index([treatmentId])
+  @@index([patientUserId])
+}
+
+model Notification {
+  id          String    @id @default(cuid())
+  type        String // e.g., "REVIEW_CREATED"
+  scope       String // "doctor" | "clinic"
+  userId      String? // (əgər user-ə bağlı bildirişdirsə)
+  doctorId    String?
+  clinicId    String?
+  treatmentId String?
+  reviewId    String?
+  payload     Json?
+  readAt      DateTime?
+  createdAt   DateTime  @default(now())
+
+  @@index([scope, doctorId])
+  @@index([scope, clinicId])
+  @@index([userId])
+}
+
+model ClinicReview {
+  id       String @id @default(cuid())
+  clinicId String
+  clinic   Clinic @relation(fields: [clinicId], references: [id])
+
+  patientUserId String // kim yazıb (User.id)
+  rating        Int
+  comment       String?
+  isPublic      Boolean @default(true)
+  isFlagged     Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([clinicId, patientUserId])
+  @@index([clinicId])
+}
+model RegistrationAudit {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+
+  email     String
+  role      String   // "patient" | "doctor" | "clinic"
+  ip        String?  // x-forwarded-for və s.
+  userAgent String?
+  success   Boolean
+  error     String?
+
+  meta      Json?
+}
+model SecurityEvent {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+
+  userId       String?
+  email        String?
+  targetUserId String?
+
+  ip        String?
+  userAgent String?
+
+  action  String   // e.g. "REGISTER_SUCCESS_PATIENT", "PASSWORD_CHANGED"
+  details Json?
+}
+model PublicProfile {
+  id        String   @id @default(cuid())
+
+  /// Hər user üçün 1 public profil
+  userId    String   @unique
+  user      User     @relation("UserPublicProfile", fields: [userId], references: [id])
+
+  /// /u/username və ya @username kimi istifadə olunacaq handle
+  username  String?  @unique
+
+  /// URL-friendly slug (məs: "sia-tagizade"), gələcəkdə /u/[slug] üçün
+  slug      String?  @unique
+
+  /// Profil ekranında görünən ad (display name)
+  displayName String?
+
+  /// Qısa başlıq / bio: "Orthodontist in Baku" və s.
+  headline    String?
+
+  /// Public profil üçün ayrıca avatar (əgər User.avatarUrl-dan fərqli istifadə etmək istəsən)
+  avatarUrl   String?
+  coverUrl    String?
+
+  /// Əsas location (User.country/city ilə sync ola bilər, amma public görünən hissə buradadır)
+  country     String?
+  city        String?
+
+  /// Şəxsi sayt / link
+  website     String?
+
+  /// Sosial linklər üçün JSON (məs: [{ "type": "x", "url": "..." }, ...])
+  socialLinks Json?
+
+  /// Public profil ümumiyyətlə açıqdırmı?
+  isPublic    Boolean  @default(true)
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+model ProfilePrivacySettings {
+  id        String   @id @default(cuid())
+
+  /// Hər user üçün 1 privacy konfiqurasiya
+  userId    String   @unique
+  user      User     @relation("UserPrivacySettings", fields: [userId], references: [id])
+
+  /// Klinikalar üçün görünmə qaydaları
+  showEmailToClinics   Boolean @default(true)
+  showPhoneToClinics   Boolean @default(true)
+  showCityToClinics    Boolean @default(true)
+
+  /// Tam profilə klinika/doctor baxışı ümumiyyətlə icazəlidirmi?
+  allowClinicProfileAccess Boolean @default(true)
+
+  /// Public (ümumi internet) üçün minimal görünmə qaydaları
+  showFullNamePublic   Boolean @default(true)
+  showAvatarPublic     Boolean @default(true)
+  showCityPublic       Boolean @default(false)
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 }

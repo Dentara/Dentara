@@ -2,6 +2,9 @@ import { ColumnDef } from "@tanstack/react-table";
 import { Badge } from "@/components/ui/badge";
 import { Patient } from "./data/schema";
 
+// ✨ əlavə: portal badge hüceyrəsi
+import { PortalStatusCell } from "@/components/portal/PortalStatusCell";
+
 export const columns: ColumnDef<Patient>[] = [
   {
     accessorKey: "name",
@@ -39,6 +42,21 @@ export const columns: ColumnDef<Patient>[] = [
     header: "Procedure",
     cell: ({ row }) => row.original.lastAppointment?.procedureType || "-",
   },
+
+  // ✨ YENİ: Portal status (ClinicPatient.id əsasında)
+  {
+    id: "portalStatus",
+    header: "Portal",
+    cell: ({ row }) => (
+      // row.original.id mövcud tipdə (Patient) varsa birbaşa işləyəcək.
+      // Əgər səndə list ClinicPatient-dəndirsə, Patient tipinə id: string sahəsi əlavə et.
+      <PortalStatusCell type="patient" id={String((row.original as any).id)} />
+    ),
+    enableSorting: false,
+    enableHiding: false,
+    size: 90,
+  },
+
   {
     accessorKey: "status",
     header: "Status",

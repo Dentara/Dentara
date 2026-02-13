@@ -1,3 +1,5 @@
+import path from "path";
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   images: {
@@ -12,7 +14,11 @@ const nextConfig = {
       },
       {
         protocol: "https",
-        hostname: "i.pravatar.cc", // ✅ bunu əlavə et
+        hostname: "i.pravatar.cc",
+      },
+      {
+        protocol: "https",
+        hostname: "api.dicebear.com", // ← avatar placeholder üçün
       },
     ],
   },
@@ -20,9 +26,13 @@ const nextConfig = {
     ignoreBuildErrors: true,
   },
   eslint: {
-    // ✅ ESLint error-ları build zamanı ignor edilsin
     ignoreDuringBuilds: true,
+  },
+  webpack(config) {
+    config.resolve.alias["@"] = path.resolve(__dirname, "src");
+    return config;
   },
 };
 
 export default nextConfig;
+

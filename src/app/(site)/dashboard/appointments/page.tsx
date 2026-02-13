@@ -15,44 +15,52 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Calendar, Check, Clock, Download, Filter, MoreHorizontal, Plus, Search, X } from "lucide-react";
 import Link from "next/link";
-import { useEffect, useState } from "react";
-type Appointment = {
+import { useEffect, useMemo, useState } from "react";
+import { useSession } from "next-auth/react";
+
+type AppointmentRow = {
   id: string;
-  patient: {
-    name: string;
-    image: string;
-  };
+  patient: { name: string; image?: string };
   doctor: string;
-  date: string;
-  time: string;
-  status: string;
+  date: string; // YYYY-MM-DD
+  time: string; // HH:mm
+  status: string; // TitleCase
   type: string;
-  duration: string;
+  duration: string | number | null;
   department: string;
+  toothNumber?: string;
+  procedureType?: string;
+  price?: string | number | null;
 };
 
-// Get unique values for filter options
 function getUniqueValues<T>(data: T[], key: keyof T | string): string[] {
-  const keyStr = String(key); // Ensure key is treated as a string
-
-  return [
-    ...new Set(
-      data.map((item) => {
-        if (keyStr.includes(".")) {
-          const [parent, child] = keyStr.split(".");
-          return (item as any)[parent]?.[child];
-        }
-        return (item as any)[keyStr];
-      })
-    ),
-  ];
+  const keyStr = String(key);
+  return [...new Set(
+    data.map((item) => {
+      if (keyStr.includes(".")) {
+        const [parent, child] = keyStr.split(".");
+        return (item as any)[parent]?.[child];
+      }
+      return (item as any)[keyStr];
+    })
+  )].filter(Boolean) as string[];
 }
+
+const badgeVariant = (status: string) => {
+  switch (status) {
+    case "Confirmed":   return { variant: "outline", className: "border-blue-500 text-blue-500" };
+    case "In progress": return { variant: "default", className: "bg-amber-500" };
+    case "Completed":   return { variant: "success", className: "bg-green-500" };
+    case "Cancelled":   return { variant: "destructive", className: "bg-red-500" };
+    default:            return { variant: "outline", className: "" };
+  }
+};
 
 export default function AppointmentsPage() {
   const [activeTab, setActiveTab] = useState("all");
   const [searchTerm, setSearchTerm] = useState("");
-  const [appointments, setAppointments] = useState([]);
-  const [filteredAppointments, setFilteredAppointments] = useState([]);
+  const [appointments, setAppointments] = useState<AppointmentRow[]>([]);
+  const [filteredAppointments, setFilteredAppointments] = useState<AppointmentRow[]>([]);
   const [filters, setFilters] = useState<any>({
     status: [],
     type: [],
@@ -62,112 +70,119 @@ export default function AppointmentsPage() {
     toothNumber: [],
     procedureType: [],
   });
-
   const [isFiltersApplied, setIsFiltersApplied] = useState(false);
-  
-useEffect(() => {
-  const fetchAppointments = async () => {
-    try {
-      const res = await fetch("/api/appointments?clinicId=cmbg9438i0000czaialurf01u");
-      const data = await res.json();
-      setAppointments(data);
-    } catch (err) {
-      console.error("Failed to fetch appointments", err);
-    }
-  };
-
-  fetchAppointments();
-}, []);
-
-
-
-  // Get unique values for filter options
-  const statusOptions = getUniqueValues(appointments, "status");
-  const typeOptions = getUniqueValues(appointments, "type");
-  const doctorOptions = getUniqueValues(appointments, "doctor");
-  const departmentOptions = getUniqueValues(appointments, "department");
-  const durationOptions = getUniqueValues(appointments, "duration");
-  const toothNumberOptions = getUniqueValues(appointments, "toothNumber");
-  const procedureTypeOptions = getUniqueValues(appointments, "procedureType");
-
   const [cancelDialogOpen, setCancelDialogOpen] = useState(false);
-  // Apply filters and search
+
+  const { data: session } = useSession();
+  const clinicId = (session?.user as any)?.clinicId;
+
+  useEffect(() => {
+   (async () => {
+     try {
+       const base = `/api/clinic/appointments?from=2000-01-01&to=2100-01-01`;
+       const withClinic = clinicId ? `${base}&clinicId=${encodeURIComponent(clinicId)}` : base;
+
+       // 1) clinicId ilə cəhd et (əgər var)
+       let res = await fetch(withClinic, { cache: "no-store" });
+       let data = await res.json();
+
+       // 2) boş gələrsə və clinicId var idisə → fallback (clinic filter-siz)
+       if (Array.isArray(data) && data.length === 0 && clinicId) {
+         const res2 = await fetch(base, { cache: "no-store" });
+         const data2 = await res2.json();
+         if (Array.isArray(data2)) data = data2;
+       }
+
+       const normalized: AppointmentRow[] = (Array.isArray(data) ? data : []).map((a: any) => ({
+         id: a.id,
+         patient: {
+           name: a.patient?.name ?? a.patientName ?? "Unknown",
+           image: a.patient?.image ?? "",
+         },
+         doctor: a.doctor?.fullName ?? a.doctorName ?? "Dr. Unknown",
+         date: a.date
+           ? (typeof a.date === "string" ? a.date.slice(0, 10) : new Date(a.date).toISOString().slice(0, 10))
+           : "",
+         time: a.time ?? a.startTime ?? "",
+         status: a.status ? a.status.charAt(0).toUpperCase() + a.status.slice(1) : "Scheduled",
+         type: a.type ?? "",
+         duration: a.duration ?? "",
+         department: a.department ?? "",
+         toothNumber: a.toothNumber ?? "",
+         procedureType: a.procedureType ?? "",
+         price: a.price ?? "",
+       }));
+
+       setAppointments(normalized);
+     } catch (err) {
+       console.error("Failed to fetch appointments", err);
+     }
+   })();
+ }, [clinicId]);
+
+
+  /* Options */
+  const statusOptions = useMemo(() => getUniqueValues(appointments, "status"), [appointments]);
+  const typeOptions = useMemo(() => getUniqueValues(appointments, "type"), [appointments]);
+  const doctorOptions = useMemo(() => getUniqueValues(appointments, "doctor"), [appointments]);
+  const departmentOptions = useMemo(() => getUniqueValues(appointments, "department"), [appointments]);
+  const durationOptions = useMemo(() => getUniqueValues(appointments, "duration"), [appointments]);
+  const toothNumberOptions = useMemo(() => getUniqueValues(appointments, "toothNumber"), [appointments]);
+  const procedureTypeOptions = useMemo(() => getUniqueValues(appointments, "procedureType"), [appointments]);
+
+  /* Filtering */
   useEffect(() => {
     let result = [...appointments];
 
-    // Apply tab filter first
     if (activeTab === "upcoming") {
       const today = new Date();
       today.setHours(0, 0, 0, 0);
-      result = result.filter((appointment) => {
-        const appointmentDate = new Date(appointment.date);
-        return appointmentDate > today && appointment.status !== "Cancelled";
-      });
+      result = result.filter((a) => new Date(a.date) > today && a.status !== "Cancelled");
     } else if (activeTab === "today") {
       const today = new Date().toISOString().split("T")[0];
-      result = result.filter((appointment) => appointment.date === today);
+      result = result.filter((a) => a.date === today);
     } else if (activeTab === "completed") {
-      result = result.filter((appointment) => appointment.status === "Completed");
+      result = result.filter((a) => a.status === "Completed");
     } else if (activeTab === "cancelled") {
-      result = result.filter((appointment) => appointment.status === "Cancelled");
+      result = result.filter((a) => a.status === "Cancelled");
     }
 
-    // Apply search term
     if (searchTerm) {
-      const search = searchTerm.toLowerCase();
-      result = result.filter((appointment) => appointment.patient.name.toLowerCase().includes(search) || appointment.doctor.toLowerCase().includes(search) || appointment.type.toLowerCase().includes(search) || appointment.department.toLowerCase().includes(search));
+      const s = searchTerm.toLowerCase();
+      result = result.filter(
+        (a) =>
+          a.patient.name.toLowerCase().includes(s) ||
+          a.doctor.toLowerCase().includes(s) ||
+          a.type.toLowerCase().includes(s) ||
+          a.department.toLowerCase().includes(s)
+      );
     }
 
-    // Apply filters
     let hasActiveFilters = false;
 
-    if (filters.status.length > 0) {
-      result = result.filter((appointment) => filters.status.includes(appointment.status));
-      hasActiveFilters = true;
-    }
-
-    if (filters.type.length > 0) {
-      result = result.filter((appointment) => filters.type.includes(appointment.type));
-      hasActiveFilters = true;
-    }
-
-    if (filters.doctor.length > 0) {
-      result = result.filter((appointment) => filters.doctor.includes(appointment.doctor));
-      hasActiveFilters = true;
-    }
-
-    if (filters.department.length > 0) {
-      result = result.filter((appointment) => filters.department.includes(appointment.department));
-      hasActiveFilters = true;
-    }
-
-    if (filters.duration.length > 0) {
-      result = result.filter((appointment) => filters.duration.includes(appointment.duration));
-      hasActiveFilters = true;
-    }
+    (["status", "type", "doctor", "department", "duration", "toothNumber", "procedureType"] as const).forEach((key) => {
+      const list = (filters as any)[key];
+      if (list?.length) {
+        result = result.filter((a: any) => list.includes((a as any)[key] || (a as any)[key]?.toString?.()));
+        hasActiveFilters = true;
+      }
+    });
 
     setIsFiltersApplied(hasActiveFilters);
     setFilteredAppointments(result);
-  }, [activeTab, searchTerm, filters]);
+  }, [activeTab, searchTerm, filters, appointments]);
 
-  // Handle filter changes
-  const handleFilterChange = (filterType: any, value: any) => {
+  const handleFilterChange = (filterType: string, value: any) => {
     setFilters((prev: any) => {
-      const newFilters = { ...prev };
-
-      if (newFilters[filterType].includes(value)) {
-        // Remove the value if it's already selected
-        newFilters[filterType] = newFilters[filterType].filter((item: any) => item !== value);
-      } else {
-        // Add the value if it's not selected
-        newFilters[filterType] = [...newFilters[filterType], value];
-      }
-
-      return newFilters;
+      const next = { ...prev };
+      const exists = next[filterType].includes(value);
+      next[filterType] = exists
+        ? next[filterType].filter((x: any) => x !== value)
+        : [...next[filterType], value];
+      return next;
     });
   };
 
-  // Clear all filters
   const clearFilters = () => {
     setFilters({
       status: [],
@@ -175,24 +190,10 @@ useEffect(() => {
       doctor: [],
       department: [],
       duration: [],
+      toothNumber: [],
+      procedureType: [],
     });
     setSearchTerm("");
-  };
-
-  // Get badge variant based on status
-  const getBadgeVariant = (status: any) => {
-    switch (status) {
-      case "Confirmed":
-        return { variant: "outline", className: "border-blue-500 text-blue-500" };
-      case "In Progress":
-        return { variant: "default", className: "bg-amber-500" };
-      case "Completed":
-        return { variant: "success", className: "bg-green-500" };
-      case "Cancelled":
-        return { variant: "destructive", className: "bg-red-500" };
-      default:
-        return { variant: "outline", className: "" };
-    }
   };
 
   return (
@@ -201,16 +202,20 @@ useEffect(() => {
         <div className="flex flex-col md:flex-row items-center justify-between gap-4">
           <div>
             <h2 className="text-2xl lg:text-3xl font-bold tracking-tight mb-2">Appointments</h2>
-            <p className="text-muted-foreground">Manage your clinic's appointments and schedules.</p>
+            <p className="text-muted-foreground">Manage your clinic&apos;s appointments and schedules.</p>
           </div>
           <div className="flex flex-wrap gap-3">
-            <Button variant="outline" href="/dashboard/appointments/calendar">
-              <Calendar className="mr-2 h-4 w-4" />
-              Calendar View
+            <Button variant="outline" asChild>
+              <Link href="/dashboard/appointments/calendar">
+                <Calendar className="mr-2 h-4 w-4" />
+                Calendar View
+              </Link>
             </Button>
-            <Button href="/dashboard/appointments/add">
-              <Plus className="mr-2 h-4 w-4" />
-              New Appointment
+            <Button asChild>
+              <Link href="/dashboard/appointments/add">
+                <Plus className="mr-2 h-4 w-4" />
+                New Appointment
+              </Link>
             </Button>
           </div>
         </div>
@@ -224,7 +229,6 @@ useEffect(() => {
             <TabsTrigger value="cancelled">Cancelled</TabsTrigger>
           </TabsList>
 
-          {/* Tab content - shared structure for all tabs */}
           {["all", "upcoming", "today", "completed", "cancelled"].map((tabValue) => (
             <TabsContent key={tabValue} value={tabValue}>
               <Card>
@@ -245,10 +249,17 @@ useEffect(() => {
                       {tabValue === "cancelled" && "View all cancelled appointments."}
                     </CardDescription>
                   </div>
+
                   <div className="flex flex-wrap gap-2">
                     <div className="relative">
                       <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-                      <Input type="search" placeholder="Search appointments..." className="pl-8 w-full md:w-[250px]" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
+                      <Input
+                        type="search"
+                        placeholder="Search appointments..."
+                        className="pl-8 w-full md:w-[250px]"
+                        value={searchTerm}
+                        onChange={(e) => setSearchTerm(e.target.value)}
+                      />
                       {searchTerm && (
                         <Button variant="ghost" size="icon" className="absolute right-0 top-0 h-full" onClick={() => setSearchTerm("")}>
                           <X className="h-4 w-4" />
@@ -257,7 +268,6 @@ useEffect(() => {
                       )}
                     </div>
 
-                    {/* Filter dropdown */}
                     <Popover>
                       <PopoverTrigger asChild>
                         <Button variant={isFiltersApplied ? "default" : "outline"} size="icon" className={isFiltersApplied ? "bg-primary text-primary-foreground" : ""}>
@@ -276,28 +286,27 @@ useEffect(() => {
                         </div>
                         <ScrollArea className="h-[300px]">
                           <div className="p-4 space-y-4">
-                            {/* Status filter */}
                             <div>
                               <h5 className="font-medium mb-2">Status</h5>
                               <div className="space-y-2">
-                                {statusOptions.map((status: any) => (
-                                  <div key={status} className="flex items-center space-x-2">
-                                    <Checkbox id={`status-${status}`} checked={filters.status.includes(status)} onCheckedChange={() => handleFilterChange("status", status)} />
-                                    <Label htmlFor={`status-${status}`} className="flex items-center">
-                                      <Badge variant={getBadgeVariant(status).variant as any} className={`${getBadgeVariant(status).className} mr-2`}>
-                                        {status}
-                                      </Badge>
-                                    </Label>
-                                  </div>
-                                ))}
+                                {statusOptions.map((status) => {
+                                  const meta = badgeVariant(status);
+                                  return (
+                                    <div key={status} className="flex items-center space-x-2">
+                                      <Checkbox id={`status-${status}`} checked={filters.status.includes(status)} onCheckedChange={() => handleFilterChange("status", status)} />
+                                      <Label htmlFor={`status-${status}`} className="flex items-center">
+                                        <Badge variant={meta.variant as any} className={`${meta.className} mr-2`}>{status}</Badge>
+                                      </Label>
+                                    </div>
+                                  );
+                                })}
                               </div>
                             </div>
 
-                            {/* Type filter */}
                             <div>
                               <h5 className="font-medium mb-2">Appointment Type</h5>
                               <div className="space-y-2">
-                                {typeOptions.map((type: any) => (
+                                {typeOptions.map((type) => (
                                   <div key={type} className="flex items-center space-x-2">
                                     <Checkbox id={`type-${type}`} checked={filters.type.includes(type)} onCheckedChange={() => handleFilterChange("type", type)} />
                                     <Label htmlFor={`type-${type}`}>{type}</Label>
@@ -306,7 +315,6 @@ useEffect(() => {
                               </div>
                             </div>
 
-                            {/* Doctor filter */}
                             <div>
                               <h5 className="font-medium mb-2">Doctor</h5>
                               <div className="space-y-2">
@@ -319,11 +327,10 @@ useEffect(() => {
                               </div>
                             </div>
 
-                            {/* Department filter */}
                             <div>
                               <h5 className="font-medium mb-2">Department</h5>
                               <div className="space-y-2">
-                                {departmentOptions.map((department: any) => (
+                                {departmentOptions.map((department) => (
                                   <div key={department} className="flex items-center space-x-2">
                                     <Checkbox id={`department-${department}`} checked={filters.department.includes(department)} onCheckedChange={() => handleFilterChange("department", department)} />
                                     <Label htmlFor={`department-${department}`}>{department}</Label>
@@ -332,11 +339,10 @@ useEffect(() => {
                               </div>
                             </div>
 
-                            {/* Duration filter */}
                             <div>
                               <h5 className="font-medium mb-2">Duration</h5>
                               <div className="space-y-2">
-                                {durationOptions.map((duration: any) => (
+                                {durationOptions.map((duration) => (
                                   <div key={duration} className="flex items-center space-x-2">
                                     <Checkbox id={`duration-${duration}`} checked={filters.duration.includes(duration)} onCheckedChange={() => handleFilterChange("duration", duration)} />
                                     <Label htmlFor={`duration-${duration}`}>{duration}</Label>
@@ -345,7 +351,6 @@ useEffect(() => {
                               </div>
                             </div>
 
-                            {/* Tooth Number filter */}
                             <div>
                               <h5 className="font-medium mb-2">Tooth Number</h5>
                               <div className="space-y-2">
@@ -358,7 +363,6 @@ useEffect(() => {
                               </div>
                             </div>
 
-                            {/* Procedure Type filter */}
                             <div>
                               <h5 className="font-medium mb-2">Procedure Type</h5>
                               <div className="space-y-2">
@@ -370,7 +374,6 @@ useEffect(() => {
                                 ))}
                               </div>
                             </div>
-
                           </div>
                         </ScrollArea>
                       </PopoverContent>
@@ -382,6 +385,7 @@ useEffect(() => {
                     </Button>
                   </div>
                 </CardHeader>
+
                 <CardContent>
                   <Table className="whitespace-nowrap">
                     <TableHeader>
@@ -392,121 +396,129 @@ useEffect(() => {
                         <TableHead>Status</TableHead>
                         <TableHead className="table-cell">Type</TableHead>
                         <TableHead className="table-cell">Duration</TableHead>
-                        <TableHead className="text-right">Actions</TableHead>
                         <TableHead className="table-cell">Tooth</TableHead>
                         <TableHead className="table-cell">Procedure</TableHead>
                         <TableHead className="table-cell">Price</TableHead>
+                        <TableHead className="text-right">Actions</TableHead>
                       </TableRow>
                     </TableHeader>
+
                     <TableBody className="whitespace-nowrap">
-                      {filteredAppointments.map((appointment) => (
-                        <TableRow key={appointment.id}>
-                          <TableCell>
-                            <div className="flex items-center gap-3">
-                              <Avatar>
-                                <AvatarImage src={appointment.patient.image || "/user-2.png"} alt={appointment.patient.name} />
-                                <AvatarFallback>{appointment.patient.name.charAt(0)}</AvatarFallback>
-                              </Avatar>
-                              <div>
-                                <p className="font-medium">{appointment.patient.name}</p>
-                                <p className="text-sm text-muted-foreground md:hidden">{appointment.doctor}</p>
+                      {filteredAppointments.map((a) => {
+                        const meta = badgeVariant(a.status);
+                        return (
+                          <TableRow key={a.id}>
+                            <TableCell>
+                              <div className="flex items-center gap-3">
+                                <Avatar>
+                                  <AvatarImage src={a.patient.image || "/user-2.png"} alt={a.patient.name} />
+                                  <AvatarFallback>{a.patient.name.charAt(0)}</AvatarFallback>
+                                </Avatar>
+                                <div>
+                                  <p className="font-medium">{a.patient.name}</p>
+                                  <p className="text-sm text-muted-foreground md:hidden">{a.doctor}</p>
+                                </div>
                               </div>
-                            </div>
-                          </TableCell>
-                          <TableCell className="table-cell">{appointment.doctor}</TableCell>
-                          <TableCell>
-                            <div>
-                              {tabValue !== "today" && <p>{appointment.date}</p>}
-                              <p className={`text-sm ${tabValue === "today" ? "" : "text-muted-foreground"}`}>{appointment.time}</p>
-                            </div>
-                          </TableCell>
-                          <TableCell>
-                            <Badge variant={getBadgeVariant(appointment.status).variant as any} className={getBadgeVariant(appointment.status).className}>
-                              {appointment.status}
-                            </Badge>
-                          </TableCell>
-                          <TableCell className="table-cell">{appointment.type}</TableCell>
-                          <TableCell className="table-cell">{appointment.duration}</TableCell>
-                          <TableCell className="table-cell">{appointment.toothNumber}</TableCell>
-                          <TableCell className="table-cell">{appointment.procedureType}</TableCell>
-                          <TableCell className="table-cell">{appointment.price} ₼</TableCell>
+                            </TableCell>
 
-                          <TableCell className="text-right">
-                            <DropdownMenu>
-                              <DropdownMenuTrigger asChild>
-                                <Button variant="ghost" size="icon">
-                                  <MoreHorizontal className="h-4 w-4" />
-                                  <span className="sr-only">Actions</span>
-                                </Button>
-                              </DropdownMenuTrigger>
-                              <DropdownMenuContent align="end">
-                                <DropdownMenuLabel>Actions</DropdownMenuLabel>
-                                <DropdownMenuItem asChild>
-                                  <Link href={`/dashboard/appointments/${appointment.id}`}>View details</Link>
-                                </DropdownMenuItem>
+                            <TableCell className="table-cell">{a.doctor}</TableCell>
 
-                                {appointment.status !== "Completed" && appointment.status !== "Cancelled" && (
-                                  <>
-                                    <DropdownMenuItem asChild>
-                                      <Link href={`/dashboard/appointments/${appointment.id}/edit`}>Edit appointment</Link>
-                                    </DropdownMenuItem>
-                                    <DropdownMenuItem asChild>
-                                      <Link href={`/dashboard/appointments/${appointment.id}/reschedule`}>Reschedule</Link>
-                                    </DropdownMenuItem>
-                                  </>
-                                )}
+                            <TableCell>
+                              <div>
+                                {tabValue !== "today" && <p>{a.date}</p>}
+                                <p className={`text-sm ${tabValue === "today" ? "" : "text-muted-foreground"}`}>{a.time}</p>
+                              </div>
+                            </TableCell>
 
-                                {appointment.status === "Confirmed" && (
-                                  <DropdownMenuItem>
-                                    <Check className="mr-2 h-4 w-4" /> Mark as in progress
-                                  </DropdownMenuItem>
-                                )}
+                            <TableCell>
+                              <Badge variant={meta.variant as any} className={meta.className}>
+                                {a.status}
+                              </Badge>
+                            </TableCell>
 
-                                {appointment.status === "In Progress" && (
-                                  <DropdownMenuItem>
-                                    <Check className="mr-2 h-4 w-4" /> Mark as completed
-                                  </DropdownMenuItem>
-                                )}
+                            <TableCell className="table-cell">{a.type}</TableCell>
+                            <TableCell className="table-cell">{a.duration}</TableCell>
+                            <TableCell className="table-cell">{a.toothNumber}</TableCell>
+                            <TableCell className="table-cell">{a.procedureType}</TableCell>
+                            <TableCell className="table-cell">{a.price ? `${a.price} ₼` : ""}</TableCell>
 
-                                {appointment.status === "Completed" && (
-                                  <>
-                                    <DropdownMenuItem>View medical record</DropdownMenuItem>
-                                    <DropdownMenuItem>Create follow-up</DropdownMenuItem>
-                                    <DropdownMenuSeparator />
-                                    <DropdownMenuItem>Generate invoice</DropdownMenuItem>
-                                  </>
-                                )}
+                            <TableCell className="text-right">
+                              <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
+                                  <Button variant="ghost" size="icon">
+                                    <MoreHorizontal className="h-4 w-4" />
+                                    <span className="sr-only">Actions</span>
+                                  </Button>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent align="end">
+                                  <DropdownMenuLabel>Actions</DropdownMenuLabel>
 
-                                {appointment.status === "Cancelled" && (
                                   <DropdownMenuItem asChild>
-                                    <Link href={`/dashboard/appointments/${appointment.id}/reschedule`}>Reschedule appointment</Link>
+                                    <Link href={`/dashboard/appointments/${a.id}`}>View details</Link>
                                   </DropdownMenuItem>
-                                )}
 
-                                {appointment.status !== "Cancelled" && appointment.status !== "Completed" && (
-                                  <>
-                                    <DropdownMenuSeparator />
-                                    <DropdownMenuItem onClick={() => setCancelDialogOpen(true)} className="text-red-600">
-                                      Cancel appointment
+                                  {a.status !== "Completed" && a.status !== "Cancelled" && (
+                                    <>
+                                      <DropdownMenuItem asChild>
+                                        <Link href={`/dashboard/appointments/${a.id}/edit`}>Edit appointment</Link>
+                                      </DropdownMenuItem>
+                                      <DropdownMenuItem asChild>
+                                        <Link href={`/dashboard/appointments/${a.id}/reschedule`}>Reschedule</Link>
+                                      </DropdownMenuItem>
+                                    </>
+                                  )}
+
+                                  {a.status === "Confirmed" && (
+                                    <DropdownMenuItem>
+                                      <Check className="mr-2 h-4 w-4" /> Mark as in progress
                                     </DropdownMenuItem>
-                                  </>
-                                )}
+                                  )}
 
-                                {appointment.status === "Cancelled" && (
-                                  <>
-                                    <DropdownMenuSeparator />
-                                    <DropdownMenuItem className="text-red-600">Delete permanently</DropdownMenuItem>
-                                  </>
-                                )}
-                              </DropdownMenuContent>
-                            </DropdownMenu>
-                          </TableCell>
-                        </TableRow>
-                      ))}
+                                  {a.status === "In progress" && (
+                                    <DropdownMenuItem>
+                                      <Check className="mr-2 h-4 w-4" /> Mark as completed
+                                    </DropdownMenuItem>
+                                  )}
+
+                                  {a.status === "Completed" && (
+                                    <>
+                                      <DropdownMenuItem>View medical record</DropdownMenuItem>
+                                      <DropdownMenuItem>Create follow-up</DropdownMenuItem>
+                                      <DropdownMenuSeparator />
+                                      <DropdownMenuItem>Generate invoice</DropdownMenuItem>
+                                    </>
+                                  )}
+
+                                  {a.status === "Cancelled" && (
+                                    <DropdownMenuItem asChild>
+                                      <Link href={`/dashboard/appointments/${a.id}/reschedule`}>Reschedule appointment</Link>
+                                    </DropdownMenuItem>
+                                  )}
+
+                                  {a.status !== "Cancelled" && a.status !== "Completed" && (
+                                    <>
+                                      <DropdownMenuSeparator />
+                                      <DropdownMenuItem onClick={() => setCancelDialogOpen(true)} className="text-red-600">
+                                        Cancel appointment
+                                      </DropdownMenuItem>
+                                    </>
+                                  )}
+
+                                  {a.status === "Cancelled" && (
+                                    <>
+                                      <DropdownMenuSeparator />
+                                      <DropdownMenuItem className="text-red-600">Delete permanently</DropdownMenuItem>
+                                    </>
+                                  )}
+                                </DropdownMenuContent>
+                              </DropdownMenu>
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })}
                     </TableBody>
                   </Table>
 
-                  {/* Empty state */}
                   {filteredAppointments.length === 0 && (
                     <div className="flex flex-col items-center justify-center py-8 text-center">
                       {searchTerm || isFiltersApplied ? (
@@ -565,16 +577,17 @@ useEffect(() => {
           ))}
         </Tabs>
       </div>
+
       <AlertDialog open={cancelDialogOpen} onOpenChange={setCancelDialogOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Are you sure you want to cancel this appointment?</AlertDialogTitle>
-            <AlertDialogDescription>This action is irreversible. If you cancel the appointment, the patient will be notified and the appointment will be deleted.</AlertDialogDescription>
+            <AlertDialogDescription>This action cannot be undone. The patient will be notified.</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogCancel>Close</AlertDialogCancel>
             <AlertDialogAction onClick={() => setCancelDialogOpen(false)} className="bg-red-500 text-neutral-50 hover:bg-red-600">
-              Delete
+              Cancel appointment
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

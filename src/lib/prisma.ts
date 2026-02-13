@@ -1,16 +1,21 @@
-// src/lib/prisma.ts
+// src/lib/prisma.ts  (və ya /lib/prisma.ts – layihə strukturuna uyğun)
+// Node runtime üçündür (Edge istifadə etmirik)
+
 import { PrismaClient } from "@prisma/client";
 
-const globalForPrisma = globalThis as unknown as {
-  prisma: PrismaClient | undefined;
-};
+declare global {
+  // eslint-disable-next-line no-var
+  var __prisma: PrismaClient | undefined;
+}
 
-export const prisma =
-  globalForPrisma.prisma ??
+const prismaClient =
+  global.__prisma ??
   new PrismaClient({
-    log: ["query"],
+    log: process.env.NODE_ENV === "development" ? ["query", "warn", "error"] : ["error"],
   });
 
-if (process.env.NODE_ENV !== "production") globalForPrisma.prisma = prisma;
+if (process.env.NODE_ENV !== "production") global.__prisma = prismaClient;
 
-export default prisma;
+// ✅ Həm named, həm default export veririk
+export const prisma = prismaClient;
+export default prismaClient;

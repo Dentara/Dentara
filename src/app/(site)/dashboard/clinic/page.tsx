@@ -1,261 +1,191 @@
 "use client";
+
+import { useEffect, useMemo, useState } from "react";
+import { useSession } from "next-auth/react";
 import { CalendarDateRangePicker } from "@/components/medix/date-range-picker";
 import { Overview } from "@/components/medix/overview";
 import { RecentAppointments } from "@/components/medix/recent-appointments";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { Badge } from "@/components/ui/badge";
+import Link from "next/link";
 import PatientDemographicsChart from "@/components/medix/analytics/PatientDemographicsChart";
 import AppointmentTypeChart from "@/components/medix/analytics/AppointmentTypeChart";
 import SatisfactionPanel from "@/components/medix/analytics/SatisfactionPanel";
 import StaffPerformancePanel from "@/components/medix/analytics/StaffPerformancePanel";
 import RevenueSourceChart from "@/components/medix/analytics/RevenueSourceChart";
+import DashboardStats from "@/components/medix/DashboardStats";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { useSession } from "next-auth/react";
-import { useEffect, useState } from "react";
-import { Progress } from "@/components/ui/progress";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Badge } from "@/components/ui/badge";
+import { OnboardingBanner } from "@/components/onboarding/OnboardingBanner";
+import ProfileCompletionBar from "@/components/profile/ProfileCompletionBar";
 import { Switch } from "@/components/ui/switch";
-import { Bar, BarChart, CartesianGrid, Cell, Legend, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { AlertCircle, Ban, Calendar, CheckCircle2, ChevronRight, Clock, DollarSign, Download, Filter, UserRound, Users } from "lucide-react";
-const unread = [
-  {
-    icon: <AlertCircle className="h-4 w-4 text-red-500" />,
-    title: "Urgent: Low medication stock",
-    message: "Amoxicillin stock is critically low. Please reorder.",
-    time: "10 minutes ago",
-  },
-  {
-    icon: <Calendar className="h-4 w-4 text-blue-500" />,
-    title: "New appointment request",
-    message: "Patient James Wilson requested an appointment for tomorrow.",
-    time: "30 minutes ago",
-  },
-  {
-    icon: <UserRound className="h-4 w-4 text-green-500" />,
-    title: "New patient registration",
-    message: "Emily Parker has registered as a new patient.",
-    time: "1 hour ago",
-  },
-  {
-    icon: <Clock className="h-4 w-4 text-orange-500" />,
-    title: "Staff schedule update",
-    message: "Dr. Rodriguez has requested time off next week.",
-    time: "2 hours ago",
-  },
-  {
-    icon: <DollarSign className="h-4 w-4 text-purple-500" />,
-    title: "Payment received",
-    message: "Insurance payment of $1,250 received for patient #12345.",
-    time: "3 hours ago",
-  },
-];
-const today = [
-  {
-    icon: <CheckCircle2 className="h-4 w-4 text-green-500" />,
-    title: "Appointment confirmed",
-    message: "Dr. Chen confirmed appointment with patient #23456.",
-    time: "4 hours ago",
-  },
-  {
-    icon: <Users className="h-4 w-4 text-blue-500" />,
-    title: "Staff meeting reminder",
-    message: "Weekly staff meeting today at 3:00 PM in Conference Room A.",
-    time: "5 hours ago",
-  },
-  {
-    icon: <Calendar className="h-4 w-4 text-purple-500" />,
-    title: "Schedule change",
-    message: "Your 2:00 PM appointment has been rescheduled to 3:30 PM.",
-    time: "6 hours ago",
-  },
-  {
-    icon: <DollarSign className="h-4 w-4 text-green-500" />,
-    title: "Invoice paid",
-    message: "Patient Maria Garcia has paid invoice #INV-2023-0456.",
-    time: "8 hours ago",
-  },
-];
-const earlier = [
-  {
-    icon: <Ban className="h-4 w-4 text-red-500" />,
-    title: "Appointment cancelled",
-    message: "Patient Thomas Brown cancelled his appointment for yesterday.",
-    time: "Yesterday",
-  },
-  {
-    icon: <AlertCircle className="h-4 w-4 text-orange-500" />,
-    title: "System maintenance",
-    message: "Scheduled system maintenance completed successfully.",
-    time: "Yesterday",
-  },
-  {
-    icon: <CheckCircle2 className="h-4 w-4 text-green-500" />,
-    title: "Lab results ready",
-    message: "Lab results for patient #34567 are now available.",
-    time: "2 days ago",
-  },
-  {
-    icon: <Users className="h-4 w-4 text-blue-500" />,
-    title: "New staff onboarding",
-    message: "Please welcome Dr. Lisa Wong to the Pediatrics department.",
-    time: "3 days ago",
-  },
-];
-const categories = [
-  {
-    category: "Appointments",
-    description: "New, cancelled, and rescheduled appointments",
-    enabled: true,
-  },
-  {
-    category: "Patient Updates",
-    description: "New registrations and patient status changes",
-    enabled: true,
-  },
-  {
-    category: "Staff Alerts",
-    description: "Schedule changes and staff announcements",
-    enabled: true,
-  },
-  { category: "Inventory Alerts", description: "Low stock and reorder notifications", enabled: true },
-];
-const deliveryMethods = [
-  {
-    method: "In-app Notifications",
-    description: "Receive notifications within the dashboard",
-    enabled: true,
-  },
-  { method: "Email Notifications", description: "Receive notifications via email", enabled: true },
-  {
-    method: "SMS Notifications",
-    description: "Receive notifications via text message",
-    enabled: false,
-  },
-  {
-    method: "Push Notifications",
-    description: "Receive notifications on your mobile device",
-    enabled: false,
-  },
-];
-const COLORS = ["#2563eb", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "#ec4899"];
+import {
+  AlertCircle,
+  Ban,
+  Calendar,
+  CheckCircle2,
+  ChevronRight,
+  Clock,
+  DollarSign,
+  Download,
+  Filter,
+  UserRound,
+  Users,
+} from "lucide-react";
+
+type Stats = {
+  revenue: number;
+  revenueChange?: number;
+  appointments: number;
+  appointmentsChange?: number;
+  appointmentsToday?: number;
+  patients: number;
+  patientsChange?: number;
+  staff: number;
+  staffChange?: number;
+};
+
+type NotifItem = { icon: string; title: string; message: string; time: string; kind: "danger" | "info" | "success" | "warning" };
+type NotifGroups = { unread: NotifItem[]; today: NotifItem[]; earlier: NotifItem[] };
+
+type NotifSetting = { category: string; description: string; enabled: boolean };
+type DeliverySetting = { method: string; description: string; enabled: boolean };
+
+type ReportsCatalog = {
+  financial: { name: string; updated: string }[];
+  patient: { name: string; updated: string }[];
+  operational: { name: string; updated: string }[];
+};
+type ReportActivity = { user: string; report: string; time: string; action: "Generated" | "Viewed" };
+
+const iconFromKind = (k: NotifItem["kind"], name?: string) => {
+  if (name === "calendar") return <Calendar className="h-4 w-4 text-purple-500" />;
+  if (name === "users") return <Users className="h-4 w-4 text-blue-500" />;
+  if (name === "dollar") return <DollarSign className="h-4 w-4 text-green-500" />;
+  if (name === "ban") return <Ban className="h-4 w-4 text-red-500" />;
+  if (name === "check") return <CheckCircle2 className="h-4 w-4 text-green-500" />;
+  if (name === "clock") return <Clock className="h-4 w-4 text-orange-500" />;
+  switch (k) {
+    case "danger":
+      return <AlertCircle className="h-4 w-4 text-red-500" />;
+    case "warning":
+      return <AlertCircle className="h-4 w-4 text-orange-500" />;
+    case "success":
+      return <CheckCircle2 className="h-4 w-4 text-green-500" />;
+    default:
+      return <AlertCircle className="h-4 w-4 text-blue-500" />;
+  }
+};
 
 export default function DashboardPage() {
   const { data: session } = useSession();
   const clinicName = session?.user?.name || "Clinic";
 
-  const [stats, setStats] = useState({
-    revenue: 0,
-    appointments: 0,
-    patients: 0,
-    staff: 0,
-  });
+  // ---- State
+  const [stats, setStats] = useState<Stats>({ revenue: 0, appointments: 0, patients: 0, staff: 0 });
+  const [notif, setNotif] = useState<NotifGroups>({ unread: [], today: [], earlier: [] });
+  const [notifCats, setNotifCats] = useState<NotifSetting[]>([]);
+  const [notifDelivery, setNotifDelivery] = useState<DeliverySetting[]>([]);
+  const [reports, setReports] = useState<ReportsCatalog>({ financial: [], patient: [], operational: [] });
+  const [reportActivity, setReportActivity] = useState<ReportActivity[]>([]);
+  const [exporting, setExporting] = useState(false);
+  const [dateRange, setDateRange] = useState<{ from?: Date; to?: Date }>({});
 
+  // ---- Data fetchers
   useEffect(() => {
-    const fetchStats = async () => {
+    (async () => {
       try {
-        const res = await fetch("/api/clinic/stats");
-        const data = await res.json();
-        setStats(data);
-      } catch (error) {
-        console.error("Error loading stats:", error);
-      }
-    };
+        // Stats
+        const s = await fetch("/api/clinic/stats").then((r) => r.json());
+        setStats((p) => ({ ...p, ...s }));
 
-    fetchStats();
+        // Notifications + settings
+        const n = await fetch("/api/clinic/notifications").then((r) => r.json());
+        setNotif(n?.groups ?? { unread: [], today: [], earlier: [] });
+        setNotifCats(n?.settings?.categories ?? []);
+        setNotifDelivery(n?.settings?.delivery ?? []);
+
+        // Reports & activity
+        const rc = await fetch("/api/clinic/reports/catalog").then((r) => r.json());
+        setReports({
+          financial: rc?.financial ?? [],
+          patient: rc?.patient ?? [],
+          operational: rc?.operational ?? [],
+        });
+        const ra = await fetch("/api/clinic/reports/recent").then((r) => r.json());
+        setReportActivity(ra ?? []);
+      } catch (e) {
+        console.error("Dashboard load error:", e);
+      }
+    })();
   }, []);
+
+  // ---- Derived counts
+  const unreadCount = useMemo(() => notif.unread.length, [notif.unread]);
+  const todayCount = useMemo(() => notif.today.length, [notif.today]);
+  const earlierCount = useMemo(() => notif.earlier.length, [notif.earlier]);
+
+  // ---- Export
+  const handleExport = async () => {
+    try {
+      setExporting(true);
+      const res = await fetch("/api/clinic/exports/overview", { method: "GET" });
+      if (!res.ok) throw new Error(`Export failed: ${res.status}`);
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `dentara-clinic-overview-${new Date().toISOString().slice(0, 10)}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      console.error("Export failed:", e);
+    } finally {
+      setExporting(false);
+    }
+  };
 
   return (
     <div className="flex flex-col gap-5 overflow-x-hidden">
+      {/* Header */}
       <div className="flex flex-col md:flex-row items-center justify-between gap-4">
         <div>
           <h2 className="text-2xl lg:text-3xl font-bold tracking-tight mb-2">Dashboard</h2>
-          <p className="text-muted-foreground">
-            Welcome back, {clinicName}! Here's what's happening today.
-          </p>
+          <p className="text-muted-foreground">Welcome back, {clinicName}! Here's what's happening today.</p>
         </div>
         <div className="flex items-center flex-wrap gap-2">
-          <CalendarDateRangePicker />
-          <Button variant="outline" size="sm">
+          {/* If your DateRangePicker exposes onChange, we capture it; otherwise it still renders normally */}
+          <CalendarDateRangePicker onChange={setDateRange as any} />
+          <Button variant="outline" size="sm" onClick={handleExport} disabled={exporting}>
             <Download className="mr-2 h-4 w-4" />
-            Export
+            {exporting ? "Exporting..." : "Export"}
           </Button>
         </div>
       </div>
 
-      <div className="grid gap-8 sm:grid-cols-2 lg:grid-cols-4">
-        {/* Card 1: Total Revenue */}
-        <Card className="border bg-white dark:bg-background shadow-sm hover:shadow-md transition">
-          <CardHeader className="flex flex-col items-start gap-1">
-            <DollarSign className="h-6 w-6 text-green-600" />
-            <CardTitle className="text-base font-semibold text-foreground">Total Revenue</CardTitle>
-            <p className="text-muted-foreground text-sm">
-              <span className={typeof stats.revenueChange === "number" && stats.revenueChange >= 0 ? "text-green-600" : "text-red-600"}>
-                {typeof stats.revenueChange === "number" ? stats.revenueChange.toFixed(1) + "%" : "0%"}
-              </span>{" "}
-              from last month
-            </p>
-          </CardHeader>
-          <CardContent className="flex flex-col gap-2 mt-2 !pt-0">
-            <h3 className="text-4xl font-bold">
-              ${typeof stats.revenue === "number" ? stats.revenue.toLocaleString() : "0"}
-            </h3>
-          </CardContent>
-        </Card>
+      <OnboardingBanner
+        targetHref="/dashboard/clinic/onboarding"
+        roleHint="clinic"
+      />
 
-        {/* Card 2: Appointments */}
-        <Card className="border bg-white dark:bg-background shadow-sm hover:shadow-md transition">
-          <CardHeader className="flex flex-col items-start gap-1">
-            <Calendar className="h-6 w-6 text-blue-500" />
-            <CardTitle className="text-base font-semibold text-foreground">Appointments</CardTitle>
-            <p className="text-muted-foreground text-sm">
-              <span className={typeof stats.appointmentsChange === "number" && stats.appointmentsChange >= 0 ? "text-green-600" : "text-red-600"}>
-                {typeof stats.appointmentsChange === "number" ? stats.appointmentsChange.toFixed(1) + "%" : "0%"}
-              </span>{" "}
-              from last month
-            </p>
-          </CardHeader>
-          <CardContent className="flex flex-col gap-2 mt-2 !pt-0">
-            <h3 className="text-4xl font-bold">{stats.appointments}</h3>
-          </CardContent>
-        </Card>
+      <ProfileCompletionBar />
 
-        {/* Card 3: Patients */}
-        <Card className="border bg-white dark:bg-background shadow-sm hover:shadow-md transition">
-          <CardHeader className="flex flex-col items-start gap-1">
-            <UserRound className="h-6 w-6 text-amber-500" />
-            <CardTitle className="text-base font-semibold text-foreground">Patients</CardTitle>
-            <p className="text-muted-foreground text-sm">
-              <span className={typeof stats.patientsChange === "number" && stats.patientsChange >= 0 ? "text-green-600" : "text-red-600"}>
-                {typeof stats.patientsChange === "number" ? stats.patientsChange.toFixed(1) + "%" : "0%"}
-              </span>{" "}
-              from last month
-            </p>
-          </CardHeader>
-          <CardContent className="flex flex-col gap-2 mt-2 !pt-0">
-            <h3 className="text-4xl font-bold">{stats.patients}</h3>
-          </CardContent>
-        </Card>
-
-        {/* Card 4: Staff */}
-        <Card className="border bg-white dark:bg-background shadow-sm hover:shadow-md transition">
-          <CardHeader className="flex flex-col items-start gap-1">
-            <Users className="h-6 w-6 text-purple-500" />
-            <CardTitle className="text-base font-semibold text-foreground">Staff</CardTitle>
-            <p className="text-muted-foreground text-sm">
-              <span className={typeof stats.staffChange === "number" && stats.staffChange >= 0 ? "text-green-600" : "text-red-600"}>
-                {typeof stats.staffChange === "number" && stats.staffChange > 0
-                  ? "+" + stats.staffChange
-                  : stats.staffChange ?? 0}
-              </span>{" "}
-              new this month
-            </p>
-          </CardHeader>
-          <CardContent className="flex flex-col gap-2 mt-2 !pt-0">
-            <h3 className="text-4xl font-bold">{stats.staff}</h3>
-          </CardContent>
-        </Card>
+      {/* KPI Cards */}
+      <DashboardStats stats={stats as any} context="clinic" />
+      <div>
+        {/* Reusable stats for clinic/doctor */}
+        {/* @components/medix/DashboardStats.tsx */}
+        {/* stats state already loaded above */}
+        {/* context="clinic" keeps revenue card visible */}
+        {/* For doctor-self page, use context="doctor" */}
+        {/* If you want to lazy-import, you can, but direct import is fine */}
+        {/* import DashboardStats from "@/components/medix/DashboardStats"; */}
+        {/* we assume you added the import at file top */}
       </div>
+
 
       <Tabs defaultValue="overview" className="space-y-4">
         <TabsList>
@@ -265,7 +195,7 @@ export default function DashboardPage() {
           <TabsTrigger value="notifications">Notifications</TabsTrigger>
         </TabsList>
 
-        {/* Overview Tab */}
+        {/* Overview */}
         <TabsContent value="overview" className="space-y-4">
           <div className="max-md:space-y-4 md:grid md:gap-4 md:grid-cols-2 lg:grid-cols-7">
             <Card className="lg:col-span-4">
@@ -280,7 +210,9 @@ export default function DashboardPage() {
             <Card className="lg:col-span-3">
               <CardHeader>
                 <CardTitle>Recent Appointments</CardTitle>
-                <CardDescription>You have {12} appointments today.</CardDescription>
+                <CardDescription>
+                  You have {typeof stats.appointmentsToday === "number" ? stats.appointmentsToday : 0} appointments today.
+                </CardDescription>
               </CardHeader>
               <CardContent>
                 <RecentAppointments />
@@ -289,7 +221,7 @@ export default function DashboardPage() {
           </div>
         </TabsContent>
 
-        {/* Analytics Tab */}
+        {/* Analytics */}
         <TabsContent value="analytics" className="space-y-4">
           <div className="flex items-center justify-between gap-3 flex-wrap">
             <div>
@@ -301,7 +233,7 @@ export default function DashboardPage() {
                 <Filter className="mr-2 h-4 w-4" />
                 Filter
               </Button>
-              <Button variant="outline" size="sm">
+              <Button variant="outline" size="sm" onClick={handleExport} disabled={exporting}>
                 <Download className="mr-2 h-4 w-4" />
                 Export
               </Button>
@@ -363,26 +295,27 @@ export default function DashboardPage() {
                 <CardDescription>Top performing staff members</CardDescription>
               </CardHeader>
               <CardContent>
+                {/* NOTE: Bu panelin daxilində placeholder 0-lar qalırsa, komponent faylını göndərin – real API-yə bağlayaq */}
                 <StaffPerformancePanel />
               </CardContent>
             </Card>
           </div>
         </TabsContent>
 
-        {/* Reports Tab */}
+        {/* Reports */}
         <TabsContent value="reports" className="space-y-4">
           <div className="flex items-center justify-between flex-wrap gap-3">
             <div>
               <h2 className="text-xl font-semibold mb-2">Available Reports</h2>
               <p className="text-sm text-muted-foreground">Access and generate detailed reports</p>
             </div>
-            <Button>
-              <Download className="mr-2 h-4 w-4" />
-              Generate New Report
+            <Button asChild>
+              <Link href="/dashboard/clinic/reports/new">Generate New Report</Link>
             </Button>
           </div>
 
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+            {/* Financial */}
             <Card>
               <CardHeader className="pb-2">
                 <CardTitle>Financial Reports</CardTitle>
@@ -410,12 +343,13 @@ export default function DashboardPage() {
                     </li>
                   ))}
                 </ul>
-                <Button variant="link" href="/reports/dashboard/appointments" className="mt-2 px-0">
-                  View all financial reports
+                <Button variant="link" asChild className="mt-2 px-0">
+                  <Link href="/dashboard/clinic/reports/financial">View all financial reports</Link>
                 </Button>
               </CardContent>
             </Card>
 
+            {/* Patient */}
             <Card>
               <CardHeader className="pb-2">
                 <CardTitle>Patient Reports</CardTitle>
@@ -443,12 +377,13 @@ export default function DashboardPage() {
                     </li>
                   ))}
                 </ul>
-                <Button variant="link" href="/reports/dashboard/patients" className="mt-2 px-0">
-                  View all patient reports
+                <Button variant="link" asChild className="mt-2 px-0">
+                  <Link href="/dashboard/clinic/reports/patients">View all patient reports</Link>
                 </Button>
               </CardContent>
             </Card>
 
+            {/* Operational */}
             <Card>
               <CardHeader className="pb-2">
                 <CardTitle>Operational Reports</CardTitle>
@@ -457,7 +392,7 @@ export default function DashboardPage() {
               <CardContent>
                 <ul className="space-y-2">
                   {[
-                    { name: "Staff Performance Metrics", updated: "Yesterday" },
+                    { name: "Staff Performance Metrics", updated: "Today" },
                     { name: "Inventory Status", updated: "Today" },
                     { name: "Room Utilization", updated: "2 days ago" },
                     { name: "Wait Time Analysis", updated: "Last week" },
@@ -476,148 +411,14 @@ export default function DashboardPage() {
                     </li>
                   ))}
                 </ul>
-                <Button variant="link" href="/reports/inventory" className="mt-2 px-0">
-                  View all operational reports
+                <Button variant="link" asChild className="mt-2 px-0">
+                  <Link href="/dashboard/clinic/reports/operational">View all operational reports</Link>
                 </Button>
               </CardContent>
             </Card>
           </div>
-
-          <Card>
-            <CardHeader>
-              <CardTitle>Recent Report Activity</CardTitle>
-              <CardDescription>Reports generated or viewed recently</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-4">
-                {[
-                  { user: "Dr. Johnson", report: "Monthly Revenue Summary", time: "2 hours ago", action: "Generated" },
-                  {
-                    user: "Admin Sarah",
-                    report: "Staff Performance Metrics",
-                    time: "Yesterday, 4:30 PM",
-                    action: "Viewed",
-                  },
-                  {
-                    user: "Dr. Rodriguez",
-                    report: "Patient Demographics",
-                    time: "Yesterday, 2:15 PM",
-                    action: "Generated",
-                  },
-                  { user: "Nurse Kim", report: "Inventory Status", time: "2 days ago", action: "Viewed" },
-                  { user: "Dr. Chen", report: "Treatment Outcomes", time: "3 days ago", action: "Generated" },
-                ].map((activity, i) => (
-                  <div key={i} className="flex items-center justify-between flex-wrap gap-2 border-b pb-3 last:border-0 last:pb-0">
-                    <div className="flex items-center gap-3">
-                      <Avatar className="h-8 w-8">
-                        <AvatarFallback>{activity.user.split(" ")[1]?.[0] || activity.user[0]}</AvatarFallback>
-                      </Avatar>
-                      <div>
-                        <p className="text-sm font-medium mb-1 line-clamp-2">
-                          {activity.user} {activity.action.toLowerCase()} <span className="font-semibold">{activity.report}</span>
-                        </p>
-                        <p className="text-xs text-muted-foreground">{activity.time}</p>
-                      </div>
-                    </div>
-                    <Button variant="outline" size="sm">
-                      View
-                    </Button>
-                  </div>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        {/* Notifications Tab */}
-        <TabsContent value="notifications" className="space-y-4">
-          <div className="flex items-center justify-between flex-wrap gap-3">
-            <div>
-              <h2 className="text-xl font-semibold mb-2">Notifications</h2>
-              <p className="text-sm text-muted-foreground">Stay updated with important alerts and messages</p>
-            </div>
-            <div className="flex items-center gap-2">
-              <Button variant="outline" size="sm">
-                Mark All as Read
-              </Button>
-              <Button variant="outline" size="sm">
-                <Filter className="mr-2 h-4 w-4" />
-                Filter
-              </Button>
-            </div>
-          </div>
-
-          <div className="grid gap-4 md:grid-cols-3">
-            <Card>
-              <CardHeader className="pb-2">
-                <div className="flex items-center justify-between">
-                  <CardTitle>Unread</CardTitle>
-                  <Badge>12</Badge>
-                </div>
-              </CardHeader>
-              <CardContent className="max-h-[400px] overflow-auto">
-                <div className="space-y-4">
-                  {unread.map((notification, i) => (
-                    <div key={i} className="flex gap-3 border-b pb-3 last:border-0 last:pb-0">
-                      <div className="mt-0.5">{notification.icon}</div>
-                      <div>
-                        <p className="text-sm font-medium mb-1 line-clamp-1">{notification.title}</p>
-                        <p className="text-xs text-muted-foreground line-clamp-1">{notification.message}</p>
-                        <p className="text-xs text-muted-foreground mt-1">{notification.time}</p>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader className="pb-2">
-                <div className="flex items-center justify-between">
-                  <CardTitle>Today</CardTitle>
-                  <Badge variant="outline">8</Badge>
-                </div>
-              </CardHeader>
-              <CardContent className="max-h-[400px] overflow-auto">
-                <div className="space-y-4">
-                  {today.map((notification, i) => (
-                    <div key={i} className="flex gap-3 border-b pb-3 last:border-0 last:pb-0">
-                      <div className="mt-0.5">{notification.icon}</div>
-                      <div>
-                        <p className="text-sm font-medium mb-1">{notification.title}</p>
-                        <p className="text-xs text-muted-foreground line-clamp-1">{notification.message}</p>
-                        <p className="text-xs text-muted-foreground mt-1">{notification.time}</p>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader className="pb-2">
-                <div className="flex items-center justify-between">
-                  <CardTitle>Earlier</CardTitle>
-                  <Badge variant="outline">15</Badge>
-                </div>
-              </CardHeader>
-              <CardContent className="max-h-[400px] overflow-auto">
-                <div className="space-y-4">
-                  {earlier.map((notification, i) => (
-                    <div key={i} className="flex gap-3 border-b pb-3 last:border-0 last:pb-0">
-                      <div className="mt-0.5">{notification.icon}</div>
-                      <div>
-                        <p className="text-sm font-medium mb-1">{notification.title}</p>
-                        <p className="text-xs text-muted-foreground line-clamp-1">{notification.message}</p>
-                        <p className="text-xs text-muted-foreground mt-1">{notification.time}</p>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-
+          
+          {/* Settings */}
           <Card>
             <CardHeader>
               <CardTitle>Notification Settings</CardTitle>
@@ -627,26 +428,52 @@ export default function DashboardPage() {
               <div className="grid gap-4 md:grid-cols-2">
                 <div className="space-y-4">
                   <h3 className="text-sm font-medium">Notification Categories</h3>
-                  {categories.map((setting, i) => (
+                  {notifCats.map((s, i) => (
                     <div key={i} className="flex items-center justify-between">
                       <div>
-                        <p className="text-sm font-medium mb-1">{setting.category}</p>
-                        <p className="text-xs text-muted-foreground">{setting.description}</p>
+                        <p className="text-sm font-medium mb-1">{s.category}</p>
+                        <p className="text-xs text-muted-foreground">{s.description}</p>
                       </div>
-                      <Switch defaultChecked={setting.enabled} />
+                      <Switch
+                        defaultChecked={s.enabled}
+                        onCheckedChange={async (val) => {
+                          try {
+                            await fetch("/api/clinic/notification-settings/category", {
+                              method: "PATCH",
+                              headers: { "Content-Type": "application/json" },
+                              body: JSON.stringify({ category: s.category, enabled: val }),
+                            });
+                          } catch (e) {
+                            console.error(e);
+                          }
+                        }}
+                      />
                     </div>
                   ))}
                 </div>
 
                 <div className="space-y-4">
                   <h3 className="text-sm font-medium">Delivery Methods</h3>
-                  {deliveryMethods.map((setting, i) => (
+                  {notifDelivery.map((s, i) => (
                     <div key={i} className="flex items-center justify-between">
                       <div>
-                        <p className="text-sm font-medium mb-1">{setting.method}</p>
-                        <p className="text-xs text-muted-foreground">{setting.description}</p>
+                        <p className="text-sm font-medium mb-1">{s.method}</p>
+                        <p className="text-xs text-muted-foreground">{s.description}</p>
                       </div>
-                      <Switch defaultChecked={setting.enabled} />
+                      <Switch
+                        defaultChecked={s.enabled}
+                        onCheckedChange={async (val) => {
+                          try {
+                            await fetch("/api/clinic/notification-settings/delivery", {
+                              method: "PATCH",
+                              headers: { "Content-Type": "application/json" },
+                              body: JSON.stringify({ method: s.method, enabled: val }),
+                            });
+                          } catch (e) {
+                            console.error(e);
+                          }
+                        }}
+                      />
                     </div>
                   ))}
                 </div>

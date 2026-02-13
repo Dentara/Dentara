@@ -1,62 +1,15 @@
-"use client"
+"use client";
 
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { Button } from "@/components/ui/button"
-import { Badge } from "@/components/ui/badge"
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 
-export function DoctorPatients() {
-  const patients = [
-    {
-      id: 1,
-      name: "Emma Thompson",
-      avatar: "/abstract-geometric-lt.png",
-      initials: "ET",
-      age: 42,
-      gender: "Female",
-      reason: "Annual check-up",
-      status: "New Patient",
-    },
-    {
-      id: 2,
-      name: "Michael Chen",
-      avatar: "/abstract-jr.png",
-      initials: "MC",
-      age: 35,
-      gender: "Male",
-      reason: "Headache, fever",
-      status: "Follow-up",
-    },
-    {
-      id: 3,
-      name: "Sophia Rodriguez",
-      avatar: "/thoughtful-artist.png",
-      initials: "SR",
-      age: 28,
-      gender: "Female",
-      reason: "Pregnancy consultation",
-      status: "Regular",
-    },
-    {
-      id: 4,
-      name: "James Wilson",
-      avatar: "/graffiti-ew.png",
-      initials: "JW",
-      age: 67,
-      gender: "Male",
-      reason: "Chest pain",
-      status: "Urgent",
-    },
-    {
-      id: 5,
-      name: "Olivia Parker",
-      avatar: "/contemplative-artist.png",
-      initials: "OP",
-      age: 8,
-      gender: "Female",
-      reason: "Vaccination",
-      status: "Regular",
-    },
-  ]
+export function DoctorPatients({ patients = [] }: { patients?: any[] }) {
+  // real xəstə siyahısı üçün props və ya backend-dən gələcək
+
+  if (!patients.length) {
+    return <div className="text-muted-foreground">No patients found.</div>;
+  }
 
   return (
     <div className="space-y-4">
@@ -67,13 +20,13 @@ export function DoctorPatients() {
         >
           <div className="flex items-center space-x-4">
             <Avatar>
-              <AvatarImage src={patient.avatar || "/user-2.png"} alt={patient.name} />
-              <AvatarFallback>{patient.initials}</AvatarFallback>
+              <AvatarImage src={patient.avatar || "/user-2.png"} alt={patient.name || "--"} />
+              <AvatarFallback>{patient.initials || "--"}</AvatarFallback>
             </Avatar>
             <div>
-              <div className="font-medium">{patient.name}</div>
+              <div className="font-medium">{patient.name || "--"}</div>
               <div className="text-sm text-muted-foreground">
-                {patient.age} yrs • {patient.gender}
+                {patient.age ? `${patient.age} yrs` : "--"} {patient.gender ? `• ${patient.gender}` : ""}
               </div>
             </div>
           </div>
@@ -84,7 +37,7 @@ export function DoctorPatients() {
                 patient.status === "Urgent" ? "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400" : ""
               }
             >
-              {patient.status}
+              {patient.status || "--"}
             </Badge>
             <div className="flex space-x-2">
               <Button size="sm" variant="outline">
@@ -96,5 +49,5 @@ export function DoctorPatients() {
         </div>
       ))}
     </div>
-  )
+  );
 }

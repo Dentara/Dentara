@@ -1,111 +1,204 @@
 "use client";
 
-import { Button } from "@/components/ui/button";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { Bell } from "lucide-react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
-import { useState } from "react";
-import { Notification, NotificationItem } from "./notification-item";
+import { Bell } from "lucide-react";
+import { Button } from "@/components/ui/button";
 
-// Sample notification data
-const initialNotifications: Notification[] = [
-  {
-    id: "1",
-    title: "New appointment request",
-    description: "Dr. Smith has a new appointment request from John Doe",
-    time: "Just now",
-    read: false,
-    type: "appointment",
-  },
-  {
-    id: "2",
-    title: "Prescription renewal",
-    description: "Patient Emily Johnson requested a prescription renewal",
-    time: "5 min ago",
-    read: false,
-    type: "prescription",
-  },
-  {
-    id: "3",
-    title: "Lab results available",
-    description: "New lab results are available for patient Michael Brown",
-    time: "1 hour ago",
-    read: false,
-    type: "system",
-  },
-  {
-    id: "4",
-    title: "New message",
-    description: "You have a new message from Dr. Williams",
-    time: "3 hours ago",
-    read: true,
-    type: "message",
-  },
-  {
-    id: "5",
-    title: "Payment received",
-    description: "Payment of $150 received from patient Sarah Davis",
-    time: "Yesterday",
-    read: true,
-    type: "billing",
-  },
-];
+type FeedItem = {
+  kind: "info" | "success" | "warning" | "danger";
+  title: string;
+  message: string;
+  time: string;
+  href?: string | null;
+};
 
-export function NotificationDropdown() {
-  const [notifications, setNotifications] = useState<Notification[]>(initialNotifications);
+type Groups = {
+  unread: FeedItem[];
+  today: FeedItem[];
+  earlier: FeedItem[];
+};
 
-  const unreadCount = notifications.filter((n) => !n.read).length;
+type Props = {
+  scope?: "clinic" | "doctor" | "patient";
+  /** Where "View all" button goes */
+  viewHref?: string;
+};
 
-  const handleMarkAsRead = (id: string) => {
-    setNotifications(notifications.map((n) => (n.id === id ? { ...n, read: true } : n)));
-  };
+export default function NotificationDropdown({
+  scope = "clinic",
+  viewHref,
+}: Props) {
+  const [open, setOpen] = useState(false);
+  const [count, setCount] = useState<number>(0);
+  const [groups, setGroups] = useState<Groups | null>(null);
+  const [listLoading, setListLoading] = useState(false);
+  const [countLoading, setCountLoading] = useState(true);
 
-  const handleMarkAllAsRead = () => {
-    setNotifications(notifications.map((n) => ({ ...n, read: true })));
+  async function loadCount() {
+    try {
+      setCountLoading(true);
+      const res = await fetch(`/api/${scope}/notifications/unread-count`, {
+        cache: "no-store",
+      });
+      if (!res.ok) {
+        setCount(0);
+        return;
+      }
+      const j = await res.json();
+      setCount(typeof j.count === "number" ? j.count : 0);
+    } catch {
+      setCount(0);
+    } finally {
+      setCountLoading(false);
+    }
+  }
+
+  async function loadList() {
+    try {
+      setListLoading(true);
+      const res = await fetch(`/api/${scope}/notifications`, {
+        cache: "no-store",
+      });
+      if (!res.ok) {
+        setGroups({ unread: [], today: [], earlier: [] });
+        return;
+      }
+      const j = await res.json();
+      const g = (j.groups ?? {}) as Partial<Groups>;
+      setGroups({
+        unread: g.unread ?? [],
+        today: g.today ?? [],
+        earlier: g.earlier ?? [],
+      });
+    } catch {
+      setGroups({ unread: [], today: [], earlier: [] });
+    } finally {
+      setListLoading(false);
+    }
+  }
+
+  // poll only count; list-i dropdown açanda yükləyirik
+  useEffect(() => {
+    loadCount();
+    const t = setInterval(loadCount, 30000);
+    return () => clearInterval(t);
+  }, [scope]);
+
+  useEffect(() => {
+    if (open) {
+      loadList();
+    }
+  }, [open, scope]);
+
+  const renderGroup = (label: string, items: FeedItem[]) => {
+    if (!items || items.length === 0) return null;
+    return (
+      <div className="mt-2">
+        <div className="px-2 text-xs font-semibold text-muted-foreground">
+          {label}
+        </div>
+        <ul className="mt-1 space-y-1">
+          {items.map((n, i) => {
+            const inner = (
+              <>
+                <div className="text-xs font-medium">{n.title}</div>
+                <div className="text-[11px] text-muted-foreground">
+                  {n.message}
+                </div>
+                <div className="text-[10px] text-muted-foreground/70">
+                  {n.time}
+                </div>
+              </>
+            );
+
+            return (
+              <li key={i} className="rounded px-2 py-1 hover:bg-muted/70">
+                {n.href ? (
+                  <Link
+                    href={n.href}
+                    className="block"
+                    onClick={() => setOpen(false)}
+                  >
+                    {inner}
+                  </Link>
+                ) : (
+                  inner
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      </div>
+    );
   };
 
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button variant="ghost" size="icon" className="relative">
-          <Bell className="h-5 w-5" />
-          {unreadCount > 0 && (
-            <span className="absolute right-1 top-1 flex h-2 w-2 rounded-full bg-primary">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75"></span>
-              <span className="relative inline-flex rounded-full h-2 w-2 bg-primary"></span>
-            </span>
-          )}
-          <span className="sr-only">Notifications</span>
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent className="w-80" align="end">
-        <DropdownMenuLabel className="flex items-center justify-between">
-          <span>Notifications</span>
-          {unreadCount > 0 && (
-            <Button variant="ghost" size="sm" className="h-auto px-2 py-1 text-xs" onClick={handleMarkAllAsRead}>
-              Mark all as read
-            </Button>
-          )}
-        </DropdownMenuLabel>
-        <DropdownMenuSeparator />
-        <div className="max-h-[300px] overflow-y-auto">
-          {notifications.length > 0 ? (
-            <DropdownMenuGroup>
-              {notifications.map((notification) => (
-                <DropdownMenuItem key={notification.id} className="p-0 focus:bg-transparent">
-                  <NotificationItem notification={notification} onMarkAsRead={handleMarkAsRead} />
-                </DropdownMenuItem>
-              ))}
-            </DropdownMenuGroup>
-          ) : (
-            <div className="py-4 text-center text-sm text-muted-foreground">No notifications</div>
-          )}
+    <div className="relative">
+      <Button
+        variant="ghost"
+        size="icon"
+        className="relative"
+        onClick={() => setOpen((v) => !v)}
+        aria-label="Notifications"
+        title="Notifications"
+      >
+        <Bell className="w-5 h-5" />
+        {count > 0 && !countLoading && (
+          <span className="absolute -top-1 -right-1 rounded-full bg-red-500 text-white text-[10px] px-1">
+            {count > 9 ? "9+" : count}
+          </span>
+        )}
+      </Button>
+
+      {open && (
+        <div className="absolute right-0 mt-2 w-96 max-w-[90vw] rounded-md border bg-popover shadow-lg z-50">
+          <div className="max-h-96 overflow-auto p-2">
+            {listLoading || !groups ? (
+              <div className="px-2 py-4 text-sm text-muted-foreground">
+                Loading…
+              </div>
+            ) : groups.unread.length === 0 &&
+              groups.today.length === 0 &&
+              groups.earlier.length === 0 ? (
+              <div className="px-2 py-4 text-sm text-muted-foreground">
+                No notifications.
+              </div>
+            ) : (
+              <>
+                {renderGroup("Unread", groups.unread)}
+                {renderGroup("Today", groups.today)}
+                {renderGroup("Earlier", groups.earlier)}
+              </>
+            )}
+          </div>
+          <div className="border-top border-t px-2 py-2 flex items-center justify-between">
+            <form
+              onSubmit={async (e) => {
+                e.preventDefault();
+                await fetch(`/api/${scope}/notifications/mark-all-read`, {
+                  method: "POST",
+                }).catch(() => {});
+                await loadCount();
+                await loadList();
+              }}
+            >
+              <Button variant="outline" size="sm">
+                Mark all read
+              </Button>
+            </form>
+            {viewHref ? (
+              <Link
+                href={viewHref}
+                className="text-sm text-primary hover:underline"
+                onClick={() => setOpen(false)}
+              >
+                View all
+              </Link>
+            ) : null}
+          </div>
         </div>
-        <DropdownMenuSeparator />
-        <DropdownMenuItem asChild className="justify-center text-sm font-medium">
-          <Link href="/notifications">View all notifications</Link>
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
+      )}
+    </div>
   );
 }

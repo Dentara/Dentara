@@ -1,156 +1,83 @@
 import { NextResponse } from "next/server";
+import prisma from "@/lib/prisma";
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/app/api/auth/[...nextauth]/route";
+
+function to24h(hhmm: string) {
+  // "10:00" və ya "10:00 AM/PM" → "HH:MM" (24h)
+  const s = hhmm.trim();
+  const m = s.match(/^(\d{1,2}):(\d{2})(?:\s*(AM|PM))?$/i);
+  if (!m) return s;
+  let h = parseInt(m[1], 10);
+  const min = m[2];
+  const ampm = (m[3] || "").toUpperCase();
+  if (ampm === "AM" && h === 12) h = 0;
+  if (ampm === "PM" && h !== 12) h += 12;
+  return `${String(h).padStart(2, "0")}:${min}`;
+}
+
+function addMinutes(hhmm24: string, minutes: number) {
+  const [h, m] = hhmm24.split(":").map(Number);
+  const total = h * 60 + m + (minutes || 0);
+  const H = Math.floor((total % (24 * 60) + 24 * 60) % (24 * 60) / 60);
+  const M = ((total % 60) + 60) % 60;
+  return `${String(H).padStart(2, "0")}:${String(M).padStart(2, "0")}`;
+}
 
 export async function GET(req: Request) {
   const url = new URL(req.url);
-  const doctor = url.searchParams.get("doctor") ?? "all";
-  const from = url.searchParams.get("from");
-  const to = url.searchParams.get("to");
+  const doctor = url.searchParams.get("doctor") || "all";
+  const from = url.searchParams.get("from") || "";
+  const to   = url.searchParams.get("to")   || "";
 
-  let appointments = [
-    {
-      id: "1",
-      patient: { name: "John Smith", image: "/colorful-abstract-shapes.png" },
-      doctor: "Dr. Sarah Johnson",
-      date: "2025-05-14",
-      time: "10:00 AM",
-      endTime: "10:30 AM",
-      status: "Confirmed",
-      type: "Check-up",
-      duration: 30,
-      department: "General Medicine",
-      color: "blue",
-    },
-    {
-      id: "2",
-      patient: { name: "Emily Davis", image: "/colorful-abstract-shapes.png" },
-      doctor: "Dr. Michael Chen",
-      date: "2025-05-14",
-      time: "11:30 AM",
-      endTime: "12:15 PM",
-      status: "In Progress",
-      type: "Consultation",
-      duration: 45,
-      department: "Cardiology",
-      color: "amber",
-    },
-    {
-      id: "3",
-      patient: { name: "Robert Wilson", image: "/user-3.png" },
-      doctor: "Dr. Lisa Patel",
-      date: "2025-05-14",
-      time: "02:15 PM",
-      endTime: "02:35 PM",
-      status: "Completed",
-      type: "Follow-up",
-      duration: 20,
-      department: "Orthopedics",
-      color: "green",
-    },
-    {
-      id: "4",
-      patient: { name: "Jessica Brown", image: "/user-3.png" },
-      doctor: "Dr. James Wilson",
-      date: "2025-05-15",
-      time: "09:00 AM",
-      endTime: "10:00 AM",
-      status: "Confirmed",
-      type: "Dental Cleaning",
-      duration: 60,
-      department: "Dental",
-      color: "purple",
-    },
-    {
-      id: "5",
-      patient: { name: "Michael Johnson", image: "/user-3.png" },
-      doctor: "Dr. Emily Rodriguez",
-      date: "2025-05-15",
-      time: "10:30 AM",
-      endTime: "10:45 AM",
-      status: "Confirmed",
-      type: "X-Ray",
-      duration: 15,
-      department: "Radiology",
-      color: "indigo",
-    },
-    {
-      id: "6",
-      patient: { name: "Sarah Thompson", image: "/user-3.png" },
-      doctor: "Dr. Robert Kim",
-      date: "2025-05-13",
-      time: "01:45 PM",
-      endTime: "02:30 PM",
-      status: "Cancelled",
-      type: "Therapy Session",
-      duration: 45,
-      department: "Psychiatry",
-      color: "red",
-    },
-    {
-      id: "7",
-      patient: { name: "David Miller", image: "/user-3.png" },
-      doctor: "Dr. Jennifer Lee",
-      date: "2025-05-12",
-      time: "11:00 AM",
-      endTime: "12:00 PM",
-      status: "Completed",
-      type: "Annual Physical",
-      duration: 60,
-      department: "General Medicine",
-      color: "blue",
-    },
-    {
-      id: "8",
-      patient: { name: "Amanda Clark", image: "/user-3.png" },
-      doctor: "Dr. Thomas Brown",
-      date: "2025-05-11",
-      time: "09:30 AM",
-      endTime: "09:45 AM",
-      status: "Cancelled",
-      type: "Vaccination",
-      duration: 15,
-      department: "Pediatrics",
-      color: "teal",
-    },
-    {
-      id: "9",
-      patient: { name: "Kevin Martinez", image: "/user-3.png" },
-      doctor: "Dr. Sarah Johnson",
-      date: "2025-05-17",
-      time: "02:00 PM",
-      endTime: "02:30 PM",
-      status: "Confirmed",
-      type: "Check-up",
-      duration: 30,
-      department: "General Medicine",
-      color: "blue",
-    },
-    {
-      id: "10",
-      patient: { name: "Sophia Wilson", image: "/user-3.png" },
-      doctor: "Dr. Michael Chen",
-      date: "2025-05-15",
-      time: "10:15 AM",
-      endTime: "11:00 AM",
-      status: "Confirmed",
-      type: "Consultation",
-      duration: 45,
-      department: "Neurology",
-      color: "green",
-    },
-  ];
+  const session = await getServerSession(authOptions);
+  const user: any = session?.user;
+  if (!user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  if (doctor !== "all") {
-    appointments = appointments.filter((a) => a.doctor === doctor);
-  }
+  const clinicId = user.role === "clinic" ? user.id : user.clinicId || null;
+  if (!clinicId) return NextResponse.json({ error: "No clinicId bound" }, { status: 403 });
 
+  // Date aralığı: verilməyibsə, default → bu gün ± 7 gün
+  let whereDate: any = {};
   if (from && to) {
-    const fromDate = new Date(from);
-    const toDate = new Date(to);
-    appointments = appointments.filter((a) => {
-      const d = new Date(a.date);
-      return d >= fromDate && d <= toDate;
-    });
+    whereDate = { gte: from, lte: to };          // appointment.date string: "YYYY-MM-DD"
+  } else {
+    const today = new Date();
+    const start = new Date(today); start.setDate(start.getDate() - 7);
+    const end   = new Date(today); end.setDate(end.getDate() + 7);
+    const ymd = (d: Date) => d.toISOString().split("T")[0];
+    whereDate = { gte: ymd(start), lte: ymd(end) };
   }
 
-  return NextResponse.json(appointments);
+  const where: any = { clinicId, date: whereDate };
+  if (doctor && doctor !== "all") where.doctorId = doctor;
+
+  const items = await prisma.appointment.findMany({
+    where,
+    include: {
+      patient: { select: { name: true, image: true } },
+      doctor:  { select: { fullName: true, id: true } },
+    },
+    orderBy: [{ date: "asc" }, { time: "asc" }],
+  });
+
+  const mapped = items.map((a) => {
+    const start24 = to24h(a.time || "00:00");
+    const end24 = addMinutes(start24, a.duration || 0);
+    return {
+      id: a.id,
+      patient: { name: a.patient?.name || "Unknown", image: a.patient?.image || null },
+      doctor: { fullName: a.doctor?.fullName || "Unknown", id: a.doctor?.id || null },
+      date: a.date,               // "YYYY-MM-DD"
+      startTime: start24,         // "HH:MM" 24h → Calendar grid ilə uyğun
+      endTime: end24,             // "HH:MM" 24h
+      status: a.status,
+      type: a.type,
+      duration: a.duration,
+      department: a.department,
+      // rəng, s. gələcəkdə əlavə oluna bilər
+    };
+  });
+
+  return NextResponse.json(mapped);
 }

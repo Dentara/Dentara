@@ -1,33 +1,30 @@
-import { prisma } from "@/app/libs/prismaDB";
+export const runtime = "nodejs";
+
 import { NextResponse } from "next/server";
+import prisma from "@/lib/prisma";
 
 export async function GET(req: Request) {
-  const { searchParams } = new URL(req.url);
-  const token = searchParams.get("token");
+  const url = new URL(req.url);
+  const origin = url.origin;
+  const token = url.searchParams.get("token");
 
-  if (!token) {
-    return NextResponse.json({ message: "Missing token." }, { status: 400 });
+  const backOk  = new URL("/auth/signin?verified=1", origin);
+  const backBad = new URL("/auth/signin?verified=0", origin);
+
+  try {
+    if (!token) return NextResponse.redirect(backBad);
+
+    const rec = await prisma.emailVerificationToken.findUnique({ where: { token } });
+    if (!rec || rec.expiresAt < new Date()) return NextResponse.redirect(backBad);
+
+    await prisma.user.update({
+      where: { email: rec.email.toLowerCase() },
+      data: { emailVerified: new Date() },
+    });
+    await prisma.emailVerificationToken.delete({ where: { token } });
+
+    return NextResponse.redirect(backOk);
+  } catch {
+    return NextResponse.redirect(backBad);
   }
-
-  const user = await prisma.user.findFirst({
-    where: {
-      verificationToken: token,
-      tokenExpires: { gt: new Date() },
-    },
-  });
-
-  if (!user) {
-    return NextResponse.json({ message: "Invalid or expired token." }, { status: 400 });
-  }
-
-  await prisma.user.update({
-    where: { id: user.id },
-    data: {
-      emailConfirmed: true,
-      verificationToken: null,
-      tokenExpires: null,
-    },
-  });
-
-  return NextResponse.json({ message: "Email successfully verified." });
 }

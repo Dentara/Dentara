@@ -14,51 +14,150 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { ArrowLeft, Upload } from "lucide-react";
 import Link from "next/link";
-import { useState } from "react";
+import { useRouter } from "next/navigation";
+import { useEffect, useRef, useState } from "react";
 
-export default function AddPatientPage() {
-  const [profilePhoto, setProfilePhoto] = useState<File | null>(null);
-  const [appointmentDate, setAppointmentDate] = useState<Date | undefined>(new Date());
-const handleSubmit = async () => {
-  const firstName = (document.getElementById("first-name") as HTMLInputElement)?.value;
-  const lastName = (document.getElementById("last-name") as HTMLInputElement)?.value;
-  const email = (document.getElementById("email") as HTMLInputElement)?.value;
-  const phone = (document.getElementById("phone") as HTMLInputElement)?.value;
-  const altPhone = (document.getElementById("alt-phone") as HTMLInputElement)?.value;
-  const dob = appointmentDate?.toISOString();
-  const gender = (document.getElementById("gender") as HTMLInputElement)?.value;
-  const address = (document.getElementById("address") as HTMLInputElement)?.value;
-  const city = (document.getElementById("city") as HTMLInputElement)?.value;
-  const state = (document.getElementById("state") as HTMLInputElement)?.value;
-  const zip = (document.getElementById("zip") as HTMLInputElement)?.value;
+/* ===================== */
+/*   DATE & IMAGE UTILS  */
+/* ===================== */
 
-  const formData = new FormData();
-  formData.append("firstName", firstName || "");
-  formData.append("lastName", lastName || "");
-  formData.append("email", email || "");
-  formData.append("phone", phone || "");
-  formData.append("altPhone", altPhone || "");
-  formData.append("dob", dob || "");
-  formData.append("gender", gender || "");
-  formData.append("address", address || "");
-  formData.append("city", city || "");
-  formData.append("state", state || "");
-  formData.append("zip", zip || "");
-  if (profilePhoto) {
-    formData.append("photo", profilePhoto);
-  }
+// Tarixi timezone-suz sabitlə (YYYY-MM-DD)
+function formatDateYMD(d?: Date) {
+  if (!d) return "";
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
 
-  const res = await fetch("/api/patient/add", {
-    method: "POST",
-    body: formData,
+// Sadə, stabil canvas yolu ilə JPEG kompressiya (max tərəf 1024px, ~0.82 keyfiyyət)
+async function compressImageToJpeg(file: File, maxDim = 1024, quality = 0.82): Promise<File> {
+  const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+    const i = new Image();
+    i.onload = () => resolve(i);
+    i.onerror = reject;
+    i.src = URL.createObjectURL(file);
   });
 
-  if (res.ok) {
-    alert("Patient registered successfully");
-  } else {
-    alert("Error registering patient");
-  }
-};
+  const w = img.naturalWidth;
+  const h = img.naturalHeight;
+  const scale = Math.min(1, maxDim / Math.max(w, h));
+  const cw = Math.round(w * scale);
+  const ch = Math.round(h * scale);
+
+  const canvas = document.createElement("canvas");
+  canvas.width = cw;
+  canvas.height = ch;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("Canvas not supported");
+  ctx.drawImage(img, 0, 0, cw, ch);
+
+  const blob = await new Promise<Blob>((resolve, reject) => {
+    canvas.toBlob(
+      (b) => (b ? resolve(b) : reject(new Error("Compression failed"))),
+      "image/jpeg",
+      quality
+    );
+  });
+
+  // Təmizlik
+  URL.revokeObjectURL(img.src);
+
+  const base = file.name.replace(/\.[^/.]+$/, "");
+  return new File([blob], `${base}-compressed.jpg`, { type: "image/jpeg" });
+}
+
+export default function AddPatientPage() {
+  // ---- EXISTING STATE ----
+  const [profilePhoto, setProfilePhoto] = useState<File | null>(null);
+  const [appointmentDate, setAppointmentDate] = useState<Date | undefined>(new Date());
+  const router = useRouter();
+  const [genderValue, setGenderValue] = useState<string>("");
+
+  // ---- PHOTO PREVIEW STATE ----
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+
+  // Şəkil seçimində avtomatik resize+kompressiya
+  const handlePhotoChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0];
+    if (!f) return;
+
+    if (!f.type.startsWith("image/")) {
+      alert("Please select an image file.");
+      e.target.value = "";
+      return;
+    }
+
+    try {
+      const compressed = await compressImageToJpeg(f, 1024, 0.82);
+      setProfilePhoto(compressed);
+
+      // Köhnə preview URL-ni təmizlə
+      setPreviewUrl((old) => {
+        if (old) URL.revokeObjectURL(old);
+        return URL.createObjectURL(compressed);
+      });
+    } catch (err) {
+      console.error(err);
+      alert("Could not process the image. Please try another file.");
+      e.target.value = "";
+    }
+  };
+
+  useEffect(() => {
+    return () => {
+      if (previewUrl) URL.revokeObjectURL(previewUrl);
+    };
+  }, [previewUrl]);
+
+  // ---- SUBMIT ----
+  const handleSubmit = async () => {
+    const firstName = (document.getElementById("first-name") as HTMLInputElement)?.value;
+    const lastName = (document.getElementById("last-name") as HTMLInputElement)?.value;
+    const email = (document.getElementById("email") as HTMLInputElement)?.value;
+    const phone = (document.getElementById("phone") as HTMLInputElement)?.value;
+    const altPhone = (document.getElementById("alt-phone") as HTMLInputElement)?.value;
+
+    // DOB-u timezone-suz formatla
+    const dob = formatDateYMD(appointmentDate);
+
+    const address = (document.getElementById("address") as HTMLInputElement)?.value;
+    const city = (document.getElementById("city") as HTMLInputElement)?.value;
+    const state = (document.getElementById("state") as HTMLInputElement)?.value;
+    const zip = (document.getElementById("zip") as HTMLInputElement)?.value;
+
+    const formData = new FormData();
+    formData.append("firstName", firstName || "");
+    formData.append("lastName", lastName || "");
+    formData.append("email", email || "");
+    formData.append("gender", genderValue || "");
+    formData.append("phone", phone || "");
+    formData.append("altPhone", altPhone || "");
+    formData.append("dob", dob || "");
+    formData.append("address", address || "");
+    formData.append("city", city || "");
+    formData.append("state", state || "");
+    formData.append("zip", zip || "");
+    if (profilePhoto) {
+      // backend 'profilePhoto' açarını oxuyur
+      formData.append("profilePhoto", profilePhoto);
+    }
+
+    const res = await fetch("/api/patients/add", {
+      method: "POST",
+      body: formData,
+    });
+
+    if (res.ok) {
+      alert("Patient registered successfully");
+      router.push("/dashboard/patients");
+      return;
+    } else {
+      await res.json().catch(() => null);
+      alert("Error registering patient");
+    }
+  };
 
   return (
     <div className="flex flex-col gap-5">
@@ -111,8 +210,8 @@ const handleSubmit = async () => {
                     <Label htmlFor="dob">Date of Birth</Label>
                     <Popover>
                       <PopoverTrigger asChild>
-                        <Button variant="outline" className={`w-full justify-start text-left font-normal `}>
-                          <span>{appointmentDate ? appointmentDate.toDateString() : "Pick a date"}</span>
+                        <Button variant="outline" className="w-full justify-start text-left font-normal">
+                          <span>{appointmentDate ? formatDateYMD(appointmentDate) : "Pick a date"}</span>
                         </Button>
                       </PopoverTrigger>
                       <PopoverContent className="w-auto p-0" align="start">
@@ -129,8 +228,8 @@ const handleSubmit = async () => {
                   </div>
                   <div className="flex-1 space-y-2">
                     <Label htmlFor="gender">Gender</Label>
-                    <Select>
-                      <SelectTrigger id="gender">
+                    <Select value={genderValue} onValueChange={setGenderValue}>
+                      <SelectTrigger id="gender" aria-label="Gender">
                         <SelectValue placeholder="Select gender" />
                       </SelectTrigger>
                       <SelectContent>
@@ -245,25 +344,51 @@ const handleSubmit = async () => {
 
               <Separator />
 
+              {/* ===== Profile Photo (with preview) ===== */}
               <div className="space-y-4">
                 <h3 className="text-lg font-medium">Profile Photo</h3>
                 <div className="flex items-center gap-4">
-                  <div className="h-24 w-24 shrink-0 rounded-full bg-muted flex items-center justify-center">
-                    <Upload className="h-8 w-8 text-muted-foreground" />
+                  <div className="h-24 w-24 shrink-0 rounded-full bg-muted/50 ring-1 ring-border shadow-sm flex items-center justify-center overflow-hidden">
+                    {previewUrl ? (
+                      <img src={previewUrl} alt="Preview" className="h-full w-full object-cover" />
+                    ) : (
+                      <Upload className="h-8 w-8 text-muted-foreground" />
+                    )}
                   </div>
                   <div className="space-y-2">
                     <input
+                      ref={fileInputRef}
                       type="file"
                       id="profile-photo"
                       accept="image/png, image/jpeg, image/gif"
                       className="hidden"
-                      onChange={(e) => setProfilePhoto(e.target.files?.[0] || null)}
+                      onChange={handlePhotoChange}
                     />
-                    <Button variant="outline" onClick={() => document.getElementById("profile-photo")?.click()}>Upload Photo</Button>
-                    <p className="text-sm text-muted-foreground">Upload a profile photo. JPG, PNG or GIF. Max 2MB.</p>
+                    <div className="flex gap-2">
+                      <Button variant="outline" onClick={() => fileInputRef.current?.click()}>Upload Photo</Button>
+                      {previewUrl && (
+                        <Button
+                          variant="outline"
+                          onClick={() => {
+                            setProfilePhoto(null);
+                            setPreviewUrl((old) => {
+                              if (old) URL.revokeObjectURL(old);
+                              return null;
+                            });
+                            if (fileInputRef.current) fileInputRef.current.value = "";
+                          }}
+                        >
+                          Remove
+                        </Button>
+                      )}
+                    </div>
+                    <p className="text-sm text-muted-foreground">
+                      Large photos will be auto-compressed (max side ~1024px). JPG/PNG/GIF supported.
+                    </p>
                   </div>
                 </div>
               </div>
+              {/* ===== /Profile Photo ===== */}
             </CardContent>
           </Card>
         </TabsContent>
@@ -649,7 +774,6 @@ const handleSubmit = async () => {
 
       <div className="flex justify-end gap-4">
         <Button variant="outline">Cancel</Button>
-
         <Button onClick={handleSubmit}>Register Patient</Button>
       </div>
     </div>

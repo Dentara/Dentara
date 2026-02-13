@@ -1,36 +1,33 @@
 import { NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 
 export async function GET() {
-  const clinicId = "demo-clinic-id";
+  try {
+    const session = await getServerSession(authOptions);
+    const user: any = session?.user;
+    if (!user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
+    const clinicId = user.role === "clinic" ? user.id : user.clinicId || null;
+    if (!clinicId) return NextResponse.json({ error: "No clinicId bound" }, { status: 403 });
 
-  const appointments = await prisma.appointment.findMany({
-    where: {
-      clinicId,
-      date: { gte: today },
-    },
-    orderBy: { date: "asc" },
-    take: 10,
-    include: {
-      patient: true,
-    },
-  });
+    const since = new Date();
+    since.setDate(since.getDate() - 7);
 
-  const transformed = appointments.map((appt) => ({
-    id: appt.id,
-    patient: {
-      name: appt.patient?.fullName || "Unknown",
-      image: appt.patient?.image || "",
-    },
-    status: appt.status,
-    time: appt.time,
-    date: "Today", // Daha sonra dinamik yazıla bilər
-    doctor: "—",
-    type: appt.reason || "General",
-  }));
+    const items = await prisma.appointment.findMany({
+      where: { clinicId, createdAt: { gte: since } },
+      include: {
+        patient: { select: { name: true, image: true } },
+        doctor:  { select: { fullName: true } },
+      },
+      orderBy: { createdAt: "desc" },
+      take: 10,
+    });
 
-  return NextResponse.json(transformed);
+    return NextResponse.json(items);
+  } catch (e) {
+    console.error("GET /api/clinic/appointments/recent", e);
+    return NextResponse.json({ error: "Failed" }, { status: 500 });
+  }
 }

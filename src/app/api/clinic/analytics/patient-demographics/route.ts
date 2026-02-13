@@ -1,8 +1,15 @@
 import { NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 
 export async function GET() {
-  const clinicId = "demo-clinic-id";
+  const session = await getServerSession(authOptions);
+  const user: any = session?.user;
+  if (!user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  const clinicId = user.role === "clinic" ? user.id : user.clinicId || null;
+  if (!clinicId) return NextResponse.json({ error: "No clinicId bound" }, { status: 403 });
 
   const ageGroups = [
     { label: "0-17", from: 0, to: 17 },
@@ -14,27 +21,22 @@ export async function GET() {
     { label: "65+", from: 65, to: 120 },
   ];
 
+  const now = new Date();
+
+  const makeDateByAge = (years: number) =>
+    new Date(now.getFullYear() - years, now.getMonth(), now.getDate());
+
   const results = await Promise.all(
     ageGroups.map(async ({ label, from, to }) => {
-      const fromDate = new Date();
-      const toDate = new Date();
-      fromDate.setFullYear(fromDate.getFullYear() - to);
-      toDate.setFullYear(toDate.getFullYear() - from);
+      const toDate = makeDateByAge(from); // younger bound → more recent birth
+      const fromDate = makeDateByAge(to); // older bound → earlier birth
 
       const male = await prisma.clinicPatient.count({
-        where: {
-          clinicId,
-          gender: "male",
-          birthDate: { gte: fromDate, lte: toDate },
-        },
+        where: { clinicId, gender: "male", birthDate: { gte: fromDate, lte: toDate } },
       });
 
       const female = await prisma.clinicPatient.count({
-        where: {
-          clinicId,
-          gender: "female",
-          birthDate: { gte: fromDate, lte: toDate },
-        },
+        where: { clinicId, gender: "female", birthDate: { gte: fromDate, lte: toDate } },
       });
 
       return { ageGroup: label, male, female };

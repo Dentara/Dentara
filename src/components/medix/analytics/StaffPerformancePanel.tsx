@@ -1,36 +1,68 @@
-"use client"
+"use client";
 
-import { useEffect, useState } from "react"
-import { Avatar, AvatarFallback } from "@/components/ui/avatar"
+import { useEffect, useState } from "react";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 
-export default function StaffPerformancePanel() {
-  const [staff, setStaff] = useState([])
+type StaffRow = { name: string; role: string; patients: number; rating: number };
+
+const EMPTY: StaffRow[] = [];
+
+export default function StaffPerformancePanel({
+  data: preset,
+  endpoint = "/api/clinic/analytics/staff-performance",
+  limit = 6,
+}: {
+  data?: StaffRow[];
+  endpoint?: string;
+  limit?: number;
+}) {
+  const [staff, setStaff] = useState<StaffRow[] | null>(preset ?? null);
 
   useEffect(() => {
-    fetch("/api/clinic/analytics/staff-performance")
-      .then((res) => res.json())
-      .then((data) => setStaff(data))
-  }, [])
+    if (preset) return;
+    const ac = new AbortController();
+    (async () => {
+      try {
+        const res = await fetch(endpoint, { signal: ac.signal });
+        if (!res.ok) throw new Error(String(res.status));
+        setStaff((await res.json()) as StaffRow[]);
+      } catch {
+        // fallback boş siyahı
+        setStaff(EMPTY);
+      }
+    })();
+    return () => ac.abort();
+  }, [endpoint, preset]);
+
+  if (!staff) return <div className="h-[180px] animate-pulse rounded-md bg-muted/40" />;
+
+  if (staff.length === 0) {
+    return (
+      <div className="text-sm text-muted-foreground">
+        No staff performance data yet. Start recording visits to see rankings here.
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-4">
-      {staff.map((person, i) => (
+      {staff.slice(0, limit).map((p, i) => (
         <div key={i} className="flex justify-between items-center">
           <div className="flex items-center gap-3">
             <Avatar className="h-8 w-8">
-              <AvatarFallback>{person.name.split(" ")[1]?.[0] || person.name[0]}</AvatarFallback>
+              <AvatarFallback>{p.name.split(" ")[1]?.[0] || p.name[0]}</AvatarFallback>
             </Avatar>
             <div>
-              <p className="text-sm font-medium">{person.name}</p>
-              <p className="text-xs text-muted-foreground">{person.role}</p>
+              <p className="text-sm font-medium">{p.name}</p>
+              <p className="text-xs text-muted-foreground">{p.role}</p>
             </div>
           </div>
           <div className="text-right">
-            <p className="text-sm font-medium">{person.patients} patients</p>
-            <p className="text-xs text-muted-foreground">Rating: {person.rating}/5</p>
+            <p className="text-sm font-medium">{p.patients} patients</p>
+            <p className="text-xs text-muted-foreground">Rating: {Number(p.rating).toFixed(1)}/5</p>
           </div>
         </div>
       ))}
     </div>
-  )
+  );
 }

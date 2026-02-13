@@ -37,7 +37,12 @@ export function NotificationItem({ notification, onMarkAsRead }: NotificationIte
   };
 
   return (
-    <div className={cn("flex items-start gap-2 p-3 text-sm transition-colors hover:bg-muted/50 rounded-md", notification.read ? "opacity-80" : "bg-muted/30")}>
+    <div
+      className={cn(
+        "flex items-start gap-2 p-3 text-sm transition-colors hover:bg-muted/50 rounded-md",
+        notification.read ? "opacity-80" : "bg-muted/30",
+      )}
+    >
       <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary/10">
         <span role="img" aria-label={notification.type}>
           {getTypeIcon(notification.type)}

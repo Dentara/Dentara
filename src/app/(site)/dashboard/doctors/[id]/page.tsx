@@ -2,21 +2,22 @@
 
 import { useEffect, useState } from "react";
 import { useParams, notFound } from "next/navigation";
-import {
-  Avatar,
-  AvatarFallback,
-  AvatarImage,
-} from "@/components/ui/avatar";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ChevronLeft } from "lucide-react";
 import Link from "next/link";
+import { DoctorPublicProfileCard } from "@/components/clinic/DoctorPublicProfileCard";
+
+type EmploymentRow = {
+  id: string;
+  startedAt: string | null;
+  endedAt: string;
+  statusAtEnd: string;
+  reason: string | null;
+  clinic: { id: string; name: string | null };
+};
 
 export default function DoctorProfilePage() {
   const params = useParams();
@@ -24,6 +25,9 @@ export default function DoctorProfilePage() {
 
   const [doctor, setDoctor] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+
+  const [history, setHistory] = useState<EmploymentRow[]>([]);
+  const [loadingHistory, setLoadingHistory] = useState(true);
 
   useEffect(() => {
     const fetchDoctor = async () => {
@@ -41,10 +45,25 @@ export default function DoctorProfilePage() {
     fetchDoctor();
   }, [doctorId]);
 
+  useEffect(() => {
+    const fetchHistory = async () => {
+      try {
+        const r = await fetch(`/api/doctors/${doctorId}/employment`);
+        if (!r.ok) throw new Error("history failed");
+        const d = (await r.json()) as EmploymentRow[];
+        setHistory(Array.isArray(d) ? d : []);
+      } catch {
+        setHistory([]);
+      } finally {
+        setLoadingHistory(false);
+      }
+    };
+    fetchHistory();
+  }, [doctorId]);
+
   if (loading) return <div>Loading...</div>;
   if (!doctor) return notFound();
 
-  // Status badge helper
   const getStatusColor = (status: string) => {
     switch (status) {
       case "Active":
@@ -55,7 +74,6 @@ export default function DoctorProfilePage() {
         return "bg-gray-500";
     }
   };
-
   const getStatusVariant = (status: string) => {
     switch (status) {
       case "Active":
@@ -66,6 +84,9 @@ export default function DoctorProfilePage() {
         return "secondary";
     }
   };
+
+  const fmt = (d?: string | null) =>
+    d ? new Date(d).toLocaleString() : "—";
 
   return (
     <div className="flex flex-col gap-6">
@@ -128,18 +149,12 @@ export default function DoctorProfilePage() {
             </div>
             <div>
               <strong>Date of Birth:</strong>{" "}
-              {doctor.dob
-                ? new Date(doctor.dob).toLocaleDateString()
+              {doctor.birthDate
+                ? new Date(doctor.birthDate).toLocaleDateString()
                 : "-"}
             </div>
             <div>
-              <strong>License Number:</strong> {doctor.licenseNumber}
-            </div>
-            <div>
-              <strong>License Expiry:</strong>{" "}
-              {doctor.licenseExpiryDate
-                ? new Date(doctor.licenseExpiryDate).toLocaleDateString()
-                : "-"}
+              <strong>Passport/ID:</strong> {doctor.passportNumber}
             </div>
             <div>
               <strong>Status:</strong> {doctor.status}
@@ -150,32 +165,148 @@ export default function DoctorProfilePage() {
           </CardContent>
         </Card>
 
-        {/* Tabs – Overview, Appointments və s. */}
+        {/* Right column */}
         <div className="md:col-span-2 space-y-6">
+          {/* Public profile card */}
+          <DoctorPublicProfileCard doctorId={doctorId} />
+
+          {/* About */}
           <Card>
             <CardHeader>
               <CardTitle>About Doctor</CardTitle>
             </CardHeader>
-            <CardContent className="text-sm text-muted-foreground">
-              {doctor.bio || doctor.qualifications
-                ? (
-                  <>
-                    <div>
-                      <strong>Bio:</strong>{" "}
-                      {doctor.bio || <span className="text-muted">No biography</span>}
-                    </div>
-                    <div>
-                      <strong>Qualifications:</strong>{" "}
-                      {doctor.qualifications ||
-                        <span className="text-muted">No qualifications</span>}
-                    </div>
-                  </>
-                )
-                : <span>No additional information provided.</span>
-              }
+            <CardContent className="text-sm text-muted-foreground space-y-2">
+              <div>
+                <strong>Bio:</strong>{" "}
+                {doctor.bio || (
+                  <span className="text-muted">No biography</span>
+                )}
+              </div>
+              <div>
+                <strong>Qualifications:</strong>{" "}
+                {doctor.qualifications || (
+                  <span className="text-muted">No qualifications</span>
+                )}
+              </div>
+              <div>
+                <strong>Certificates:</strong>{" "}
+                {Array.isArray(doctor.certificates) &&
+                doctor.certificates.length > 0 ? (
+                  <ul className="list-disc ml-5">
+                    {doctor.certificates.map((cert: any, idx: number) => (
+                      <li key={idx}>
+                        {cert.title}
+                        {cert.fileUrl && (
+                          <a
+                            href={cert.fileUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="ml-2 text-blue-600 underline"
+                          >
+                            View file
+                          </a>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <span className="text-muted">No certificates</span>
+                )}
+              </div>
+              <div>
+                <strong>Diploma:</strong>{" "}
+                {doctor.diplomaFile ? (
+                  <a
+                    href={doctor.diplomaFile}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-blue-600 underline"
+                  >
+                    View Diploma
+                  </a>
+                ) : (
+                  <span className="text-muted">No diploma file</span>
+                )}
+              </div>
+              <div>
+                <strong>Diploma Additions:</strong>{" "}
+                {Array.isArray(doctor.diplomaAdditions) &&
+                doctor.diplomaAdditions.length > 0 ? (
+                  <ul className="list-disc ml-5">
+                    {doctor.diplomaAdditions.map(
+                      (fileUrl: string, idx: number) => (
+                        <li key={idx}>
+                          <a
+                            href={fileUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-blue-600 underline"
+                          >
+                            View Addition {idx + 1}
+                          </a>
+                        </li>
+                      )
+                    )}
+                  </ul>
+                ) : (
+                  <span className="text-muted">No additions</span>
+                )}
+              </div>
             </CardContent>
           </Card>
-          {/* Burada gələcəkdə appointment, təhsil, sertifikat və s. əlavə edilə bilər */}
+
+          {/* Employment History */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Employment History</CardTitle>
+            </CardHeader>
+            <CardContent className="text-sm">
+              {loadingHistory ? (
+                <div className="text-muted-foreground">Loading history…</div>
+              ) : history.length === 0 ? (
+                <div className="text-muted-foreground">
+                  No archived employment records.
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-sm">
+                    <thead>
+                      <tr className="border-b">
+                        <th className="py-2 pr-4">Clinic</th>
+                        <th className="py-2 pr-4">Started</th>
+                        <th className="py-2 pr-4">Ended</th>
+                        <th className="py-2 pr-4">Status at End</th>
+                        <th className="py-2 pr-4">Reason</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {history.map((row) => (
+                        <tr key={row.id} className="border-b last:border-0">
+                          <td className="py-2 pr-4">
+                            {row.clinic?.name || "-"}
+                          </td>
+                          <td className="py-2 pr-4">
+                            {fmt(row.startedAt)}
+                          </td>
+                          <td className="py-2 pr-4">
+                            {fmt(row.endedAt)}
+                          </td>
+                          <td className="py-2 pr-4">
+                            <Badge variant="outline">
+                              {row.statusAtEnd}
+                            </Badge>
+                          </td>
+                          <td className="py-2 pr-4">
+                            {row.reason || "—"}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </CardContent>
+          </Card>
         </div>
       </div>
     </div>

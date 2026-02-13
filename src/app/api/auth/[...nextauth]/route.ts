@@ -1,111 +1,134 @@
-import { prisma } from "@/app/libs/prismaDB";
-import { PrismaAdapter } from "@next-auth/prisma-adapter";
-import NextAuth, { NextAuthOptions } from "next-auth";
+// app/api/auth/[...nextauth]/route.ts
+export const runtime = "nodejs";
+
+import NextAuth, { type NextAuthOptions } from "next-auth";
 import CredentialsProvider from "next-auth/providers/credentials";
-import GitHubProvider from "next-auth/providers/github";
-import GoogleProvider from "next-auth/providers/google";
-import EmailProvider from "next-auth/providers/email";
-import bcrypt from "bcrypt";
+import * as bcrypt from "bcryptjs";
+import prisma from "@/lib/prisma";
+import { checkRateLimit } from "@/lib/rateLimit";
 
 export const authOptions: NextAuthOptions = {
-  pages: {
-    signIn: "/auth/signin",
-  },
-  adapter: PrismaAdapter(prisma),
-  secret: process.env.SECRET,
-  session: {
-    strategy: "jwt",
-  },
+  session: { strategy: "jwt" },
+  pages: { signIn: "/auth/signin" },
 
   providers: [
     CredentialsProvider({
-      name: "credentials",
+      name: "Credentials",
       credentials: {
-        email: { label: "Email", type: "text", placeholder: "Jhondoe" },
+        email: { label: "Email", type: "email" },
         password: { label: "Password", type: "password" },
-        accountType: { label: "Account Type", type: "text" },
+        accountType: { label: "Account Type", type: "text" }, // "clinic" | "doctor" | "patient"
       },
-
       async authorize(credentials) {
-        if (!credentials?.email || !credentials?.password || !credentials?.accountType) {
-          throw new Error("Please enter email, password and account type");
+        if (!credentials?.email || !credentials.password) {
+          throw new Error("Email and password are required");
         }
+
+        const emailLower = credentials.email.toLowerCase().trim();
 
         const user = await prisma.user.findUnique({
-          where: { email: credentials.email },
+          where: { email: emailLower },
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            password: true,
+            role: true,
+            emailVerified: true,
+          },
         });
 
-        if (!user) {
-          throw new Error("No account found with this email.");
+        if (!user) throw new Error("Invalid credentials");
+
+        const requestedRole = (credentials.accountType || "").toLowerCase();
+        if (requestedRole && user.role !== requestedRole) {
+          throw new Error("Wrong account type");
         }
 
-        if (!user.emailConfirmed) {
-          throw new Error("Please verify your email before logging in.");
+        if (!user.emailVerified) {
+          throw new Error("verify_required");
         }
 
-        if (user.role !== credentials.accountType) {
-          throw new Error(`This email belongs to a ${user.role} account. Please select the correct role.`);
-        }
+        const ok = await bcrypt.compare(credentials.password || "", user.password || "");
+        if (!ok) throw new Error("Invalid credentials");
 
-        const passwordMatch = await bcrypt.compare(credentials.password, user.password);
-
-        if (!passwordMatch) {
-          throw new Error("Incorrect password.");
-        }
-
-        return user;
+        return {
+          id: user.id,
+          name: user.name || undefined,
+          email: user.email || undefined,
+          role: user.role,
+        } as any;
       },
-    }),
-
-    EmailProvider({
-      server: {
-        host: process.env.EMAIL_SERVER_HOST,
-        port: Number(process.env.EMAIL_SERVER_PORT),
-        auth: {
-          user: process.env.EMAIL_SERVER_USER,
-          pass: process.env.EMAIL_SERVER_PASSWORD,
-        },
-      },
-      from: process.env.EMAIL_FROM,
-    }),
-
-    GitHubProvider({
-      clientId: process.env.GITHUB_CLIENT_ID || "",
-      clientSecret: process.env.GITHUB_CLIENT_SECRET || "",
-    }),
-
-    GoogleProvider({
-      clientId: process.env.GOOGLE_CLIENT_ID || "",
-      clientSecret: process.env.GOOGLE_CLIENT_SECRET || "",
     }),
   ],
 
   callbacks: {
     async jwt({ token, user }) {
       if (user) {
-        token.id = user.id;
-        token.role = user.role;
-
-        const clinicDoctor = await prisma.clinicDoctor.findFirst({
-          where: { userId: user.id },
-        });
-
-        token.clinicId = clinicDoctor?.clinicId || null;
-        token.clinicRole = clinicDoctor?.role || "unknown";
+        token.id = (user as any).id;
+        token.role = (user as any).role;
       }
-
       return token;
     },
 
     async session({ session, token }) {
-      (session.user as any).id = token.id;
-      (session.user as any).role = token.role;
-      (session.user as any).clinicId = token.clinicId || null;
-      (session.user as any).clinicRole = token.clinicRole || "unknown";
+      if (session.user) {
+        (session.user as any).id = token.id as string | undefined;
+        (session.user as any).role = token.role as string | undefined;
+      }
       return session;
+    },
+
+    async redirect({ url, baseUrl }) {
+      try {
+        const target = new URL(url, baseUrl);
+        const cb = target.searchParams.get("callbackUrl");
+        if (cb) return new URL(cb, baseUrl).toString();
+        return new URL("/redirect", baseUrl).toString();
+      } catch {
+        return new URL("/redirect", baseUrl).toString();
+      }
     },
   },
 };
 
-const handler = NextAuth(authOptions);
-export { handler as GET, handler as POST };
+// NextAuth handler-ı
+const nextAuthHandler = NextAuth(authOptions);
+
+/**
+ * GET → eyni qalır (signIn səhifəsi və s.)
+ */
+export const GET = nextAuthHandler;
+
+/**
+ * POST → burda login üçün rate-limit tətbiq edirik.
+ * IP başına 5 dəqiqədə max 20 cəhd.
+ */
+export async function POST(req: Request, ctx: any) {
+  const ip =
+    req.headers.get("x-forwarded-for") ||
+    req.headers.get("x-real-ip") ||
+    req.headers.get("cf-connecting-ip") ||
+    "unknown";
+
+  const rl = checkRateLimit({
+    key: `signin:${ip}`,
+    limit: 20,
+    windowMs: 5 * 60 * 1000,
+  });
+
+  if (!rl.allowed) {
+    return new Response(
+      JSON.stringify({
+        error:
+          "Too many login attempts from this device. Please wait a few minutes and try again.",
+      }),
+      {
+        status: 429,
+        headers: { "Content-Type": "application/json" },
+      }
+    );
+  }
+
+  return nextAuthHandler(req, ctx);
+}

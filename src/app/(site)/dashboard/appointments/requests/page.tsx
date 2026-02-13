@@ -8,6 +8,8 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { useSession } from "next-auth/react";
+import { useRouter } from "next/navigation";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -65,6 +67,17 @@ const getUniqueValues = (data: any, key: any) => {
 };
 
 export default function AppointmentRequestsPage() {
+  const { data: session, status } = useSession();
+  const router = useRouter();
+
+  // Yalnız CLINIC burada qalır. Doctor/Patient öz səhifəsinə yönlənsin.
+  useEffect(() => {
+    if (status === "loading") return;
+    const role = (session?.user as any)?.role;
+    if (role === "doctor") router.replace("/dashboard/doctor-self/requests");
+    else if (role === "patient") router.replace("/dashboard/patient-self/requests");
+  }, [session, status, router]);
+
   const [activeTab, setActiveTab] = useState<"pending" | "approved" | "rejected">("pending");
   const [searchTerm, setSearchTerm] = useState<string>("");
   const [requests, setRequests] = useState<AppointmentRequest[]>([]);
@@ -145,6 +158,9 @@ export default function AppointmentRequestsPage() {
     clearFilters();
   };
   useEffect(() => {
+    const role = (session?.user as any)?.role;
+    if (status !== "authenticated" || role === "doctor" || role === "patient") return; // yalnız clinic yükləsin
+
     async function fetchRequests() {
       try {
         const res = await fetch("/api/clinic/appointments/requests");
@@ -157,7 +173,7 @@ export default function AppointmentRequestsPage() {
     }
 
     fetchRequests();
-  }, []);
+  }, [session, status]);
 
   const handleApprove = async (id: string) => {
   await fetch("/api/clinic/appointments/requests", {
